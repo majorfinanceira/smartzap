@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
+import { normalizePhoneNumber, validateAnyPhoneNumber } from '@/lib/phone-formatter'
 
 /**
  * API Route: Test Contact Settings
@@ -52,12 +53,20 @@ export async function POST(request: NextRequest) {
             )
         }
 
-        // Normalize phone (remove non-digits except +)
-        const normalizedPhone = phone.replace(/[^\d+]/g, '')
+        // Normalize first so we accept inputs like "5511999999999" (without '+')
+        const normalizedPhoneE164 = normalizePhoneNumber(String(phone))
+
+        const phoneValidation = validateAnyPhoneNumber(normalizedPhoneE164)
+        if (!phoneValidation.isValid) {
+            return NextResponse.json(
+                { error: phoneValidation.error || 'Telefone inválido' },
+                { status: 400 }
+            )
+        }
 
         const testContact = {
             name: name?.trim() || '',
-            phone: normalizedPhone,
+            phone: normalizedPhoneE164,
             updatedAt: new Date().toISOString()
         }
 

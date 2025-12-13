@@ -102,6 +102,7 @@ export async function GET(request: Request, { params }: Params) {
       return {
         id: row.id as string || `msg_${id}_${offset + index}`,
         campaignId: id,
+        contactId: (row.contact_id as string | null) || undefined,
         contactName: row.name as string || row.phone as string,
         contactPhone: row.phone as string,
         status,

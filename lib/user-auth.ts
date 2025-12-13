@@ -179,7 +179,9 @@ export async function completeSetup(
     return { success: false, error: 'E-mail inválido' }
   }
 
-  const phoneValidation = validateAnyPhoneNumber(phone)
+  // Normalize first so we accept inputs like "5511999999999" (without '+')
+  const normalizedPhoneE164ForValidation = normalizePhoneNumber(phone)
+  const phoneValidation = validateAnyPhoneNumber(normalizedPhoneE164ForValidation)
   if (!phoneValidation.isValid) {
     return { success: false, error: phoneValidation.error || 'Telefone inválido' }
   }
@@ -190,8 +192,8 @@ export async function completeSetup(
     const existingId = await getSetting('company_id')
     const companyId = existingId?.value || crypto.randomUUID()
 
-    const normalizedPhone = normalizePhoneNumber(phone)
-    const storedPhone = normalizedPhone.replace(/\D/g, '')
+    const normalizedPhoneE164 = normalizedPhoneE164ForValidation
+    const storedPhoneDigits = normalizedPhoneE164.replace(/\D/g, '')
 
     // Save company info using parallel upserts
     await Promise.all([
@@ -199,7 +201,7 @@ export async function completeSetup(
       upsertSetting('company_name', companyName.trim()),
       upsertSetting('company_admin', companyAdmin.trim()),
       upsertSetting('company_email', email.trim().toLowerCase()),
-      upsertSetting('company_phone', storedPhone),
+      upsertSetting('company_phone', storedPhoneDigits),
       upsertSetting('company_created_at', now)
     ])
 
@@ -216,7 +218,7 @@ export async function completeSetup(
           'test_contact',
           JSON.stringify({
             name: desiredName,
-            phone: storedPhone,
+            phone: normalizedPhoneE164,
             updatedAt: now,
           })
         )
@@ -228,15 +230,31 @@ export async function completeSetup(
           if (parsed && typeof parsed === 'object') {
             const tc = parsed as { name?: unknown; phone?: unknown; updatedAt?: unknown }
             const currentName = typeof tc.name === 'string' ? tc.name.trim() : ''
-            const currentPhone = typeof tc.phone === 'string' ? tc.phone.replace(/\D/g, '') : ''
+            const currentPhoneRaw = typeof tc.phone === 'string' ? tc.phone.trim() : ''
+            const currentPhoneDigits = currentPhoneRaw.replace(/\D/g, '')
+            const shouldUpgradePhoneToE164 = !!currentPhoneRaw && !currentPhoneRaw.startsWith('+')
 
-            if (currentName === adminFullName && currentPhone === storedPhone) {
+            // Upgrade seguro de seeds antigos:
+            // - Se o nome é o nome completo do admin (seed antigo) e o telefone bate (por dígitos),
+            //   atualiza para primeiro nome e telefone em E.164.
+            if (currentName === adminFullName && currentPhoneDigits === storedPhoneDigits) {
               await upsertSetting(
                 'test_contact',
                 JSON.stringify({
                   ...tc,
                   name: desiredName,
-                  phone: storedPhone,
+                  phone: normalizedPhoneE164,
+                  updatedAt: now,
+                })
+              )
+            } else if (shouldUpgradePhoneToE164 && currentPhoneDigits === storedPhoneDigits) {
+              // Se o usuário não personalizou o nome mas o telefone está sem '+',
+              // apenas normaliza para E.164.
+              await upsertSetting(
+                'test_contact',
+                JSON.stringify({
+                  ...tc,
+                  phone: normalizedPhoneE164,
                   updatedAt: now,
                 })
               )
@@ -260,7 +278,7 @@ export async function completeSetup(
         id: companyId,
         name: companyName.trim(),
         email: email.trim().toLowerCase(),
-        phone: storedPhone,
+        phone: storedPhoneDigits,
         createdAt: now
       }
     }

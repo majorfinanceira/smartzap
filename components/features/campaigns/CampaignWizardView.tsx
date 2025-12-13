@@ -75,7 +75,20 @@ interface CampaignWizardViewProps {
   selectedTemplate?: Template;
   handleNext: () => void;
   handleBack: () => void;
-  handleSend: (scheduledAt?: string) => void;
+  // Pré-check (dry-run)
+  // O controller retorna o payload do pré-check (útil para testes/telemetria), então aceitamos qualquer retorno.
+  handlePrecheck: () => void | Promise<unknown>;
+  precheckResult?: {
+    templateName: string;
+    totals: { total: number; valid: number; skipped: number };
+    results: Array<
+      | { ok: true; contactId?: string; name: string; phone: string; normalizedPhone: string }
+      | { ok: false; contactId?: string; name: string; phone: string; normalizedPhone?: string; skipCode: string; reason: string }
+    >;
+  } | null;
+  isPrechecking?: boolean;
+
+  handleSend: (scheduledAt?: string) => void | Promise<void>;
   isCreating: boolean;
   isLoading: boolean;
   // Test Contact
@@ -416,6 +429,9 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
   selectedTemplate,
   handleNext,
   handleBack,
+  handlePrecheck,
+  precheckResult,
+  isPrechecking,
   handleSend,
   isCreating,
   isLoading,
@@ -497,6 +513,102 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
     }
     return selectedTemplate;
   }, [hoveredTemplateId, selectedTemplate, availableTemplates]);
+
+  type MissingParam = {
+    where: 'header' | 'body' | 'button';
+    key: string;
+    buttonIndex?: number;
+    raw: string;
+  };
+
+  const missingParams = useMemo<MissingParam[]>(() => {
+    const results = (precheckResult as any)?.results as any[] | undefined;
+    if (!results || !Array.isArray(results)) return [];
+
+    const out: MissingParam[] = [];
+    const parseReason = (reason: string): MissingParam[] => {
+      if (!reason || typeof reason !== 'string') return [];
+      if (!reason.includes('Variáveis obrigatórias sem valor:')) return [];
+
+      const tail = reason.split('Variáveis obrigatórias sem valor:')[1] || '';
+      const parts = tail.split(',').map(s => s.trim()).filter(Boolean);
+      const parsed: MissingParam[] = [];
+
+      for (const p of parts) {
+        // button:0:1 (raw="{{email}}")
+        const btn = p.match(/^button:(\d+):(\w+) \(raw="([\s\S]*?)"\)$/);
+        if (btn) {
+          parsed.push({ where: 'button', buttonIndex: Number(btn[1]), key: String(btn[2]), raw: btn[3] });
+          continue;
+        }
+        // body:1 (raw="<vazio>")
+        const hb = p.match(/^(header|body):(\w+) \(raw="([\s\S]*?)"\)$/);
+        if (hb) {
+          parsed.push({ where: hb[1] as any, key: String(hb[2]), raw: hb[3] });
+        }
+      }
+      return parsed;
+    };
+
+    for (const r of results) {
+      if (r?.ok) continue;
+      if (r?.skipCode !== 'MISSING_REQUIRED_PARAM') continue;
+      const reason = String(r?.reason || '');
+      out.push(...parseReason(reason));
+    }
+
+    return out;
+  }, [precheckResult]);
+
+  const missingSummary = useMemo(() => {
+    const map = new Map<string, { where: MissingParam['where']; key: string; buttonIndex?: number; count: number; rawSamples: Set<string> }>();
+    for (const m of missingParams) {
+      const id = m.where === 'button' ? `button:${m.buttonIndex}:${m.key}` : `${m.where}:${m.key}`;
+      const cur = map.get(id) || { where: m.where, key: m.key, buttonIndex: m.buttonIndex, count: 0, rawSamples: new Set<string>() };
+      cur.count += 1;
+      if (m.raw) cur.rawSamples.add(m.raw);
+      map.set(id, cur);
+    }
+
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [missingParams]);
+
+  const applyQuickFill = (slot: { where: 'header' | 'body' | 'button'; key: string; buttonIndex?: number }, value: string) => {
+    if (slot.where === 'header') {
+      const idx = (templateVariableInfo?.header || []).findIndex(v => String(v.key) === String(slot.key));
+      if (idx < 0) return;
+      const newHeader = [...templateVariables.header];
+      newHeader[idx] = value;
+      setTemplateVariables({ ...templateVariables, header: newHeader });
+      return;
+    }
+    if (slot.where === 'body') {
+      const idx = (templateVariableInfo?.body || []).findIndex(v => String(v.key) === String(slot.key));
+      if (idx < 0) return;
+      const newBody = [...templateVariables.body];
+      newBody[idx] = value;
+      setTemplateVariables({ ...templateVariables, body: newBody });
+      return;
+    }
+    if (slot.where === 'button') {
+      const bIdx = Number(slot.buttonIndex);
+      const key = String(slot.key);
+      if (!Number.isFinite(bIdx) || bIdx < 0) return;
+
+      // Mantém compatibilidade com UI atual (button_{idx}_0) e com o contrato (aceita legacy e modern).
+      const legacyKey = `button_${bIdx}_${Math.max(0, Number(key) - 1)}`;
+      const modernKey = `button_${bIdx}_${key}`;
+
+      setTemplateVariables({
+        ...templateVariables,
+        buttons: {
+          ...(templateVariables.buttons || {}),
+          [legacyKey]: value,
+          [modernKey]: value,
+        },
+      });
+    }
+  };
 
   // Hook must be called before any conditional returns
   const { rate: exchangeRate, hasRate } = useExchangeRate();
@@ -1379,6 +1491,200 @@ export const CampaignWizardView: React.FC<CampaignWizardViewProps> = ({
                     <p className="font-bold text-amber-500 mb-1">Checagem Final</p>
                     <p>Ao clicar em disparar, você confirma que todos os destinatários aceitaram receber mensagens do seu negócio.</p>
                   </div>
+                </div>
+
+                {/* Pré-check (dry-run) */}
+                <div className="bg-zinc-900/50 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <ShieldAlert size={16} className="text-primary-400" />
+                      <h3 className="text-sm font-bold text-white">Pré-check de destinatários</h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handlePrecheck()}
+                      disabled={!!isPrechecking}
+                      className={`px-4 py-2 rounded-lg text-sm font-bold border transition-colors flex items-center gap-2 ${isPrechecking
+                        ? 'bg-zinc-800 border-white/10 text-gray-400'
+                        : 'bg-white text-black border-white hover:bg-gray-200'
+                        }`}
+                      title="Valida telefones + variáveis do template sem criar campanha"
+                    >
+                      {isPrechecking ? (
+                        <>
+                          <RefreshCw size={14} className="animate-spin" /> Validando...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle size={14} /> Validar agora
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {precheckResult?.totals && (
+                    <div className="mt-3 text-xs text-gray-400 space-y-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-emerald-400 font-bold">Válidos: {precheckResult.totals.valid}</span>
+                        <span className="text-amber-400 font-bold">Serão ignorados: {precheckResult.totals.skipped}</span>
+                        <span className="text-gray-500">Total: {precheckResult.totals.total}</span>
+                      </div>
+
+                      {/* Pré-check alterável (Parte 2): ações rápidas para resolver variáveis faltantes */}
+                      {missingSummary.length > 0 && (
+                        <div className="bg-zinc-950/30 border border-white/5 rounded-lg p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-gray-200 font-medium">Ajustes rápidos</p>
+                              <p className="text-[11px] text-gray-500">
+                                Estes itens estão causando <span className="text-amber-300">skips</span> por variável sem valor. Você pode preencher aqui e clicar em <span className="text-white">Validar agora</span> de novo.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 space-y-2">
+                            {missingSummary.slice(0, 6).map((m) => {
+                              const label = m.where === 'button'
+                                ? `Botão ${Number(m.buttonIndex) + 1} • {{${m.key}}}`
+                                : `${m.where === 'header' ? 'Cabeçalho' : 'Corpo'} • {{${m.key}}}`;
+
+                              return (
+                                <div key={`${m.where}:${m.buttonIndex ?? ''}:${m.key}`} className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between bg-zinc-900/40 border border-white/5 rounded-lg p-2">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="text-[11px] font-bold text-gray-200 truncate">{label}</span>
+                                      <span className="text-[10px] text-amber-300">afetou {m.count}</span>
+                                    </div>
+                                    {m.rawSamples.size > 0 && (
+                                      <p className="text-[10px] text-gray-500 truncate">
+                                        raw: {Array.from(m.rawSamples).slice(0, 2).join(' • ')}
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <button
+                                          type="button"
+                                          className="px-3 py-1.5 rounded-md text-[11px] font-bold bg-white/10 hover:bg-white/15 border border-white/10 text-gray-200"
+                                          title="Preencher esta variável"
+                                        >
+                                          Preencher com…
+                                        </button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-800 text-white min-w-[220px]">
+                                        <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5">
+                                          Dados do Contato
+                                        </DropdownMenuLabel>
+
+                                        <DropdownMenuItem
+                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{nome}}')}
+                                        >
+                                          <Users size={14} className="text-indigo-400" />
+                                          <span>Nome</span>
+                                        </DropdownMenuItem>
+
+                                        <DropdownMenuItem
+                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{telefone}}')}
+                                        >
+                                          <div className="text-green-400 font-mono text-[10px] w-3.5 text-center">Ph</div>
+                                          <span>Telefone</span>
+                                        </DropdownMenuItem>
+
+                                        <DropdownMenuItem
+                                          className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                          onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, '{{email}}')}
+                                        >
+                                          <div className="text-blue-400 font-mono text-[10px] w-3.5 text-center">@</div>
+                                          <span>Email</span>
+                                        </DropdownMenuItem>
+
+                                        <DropdownMenuSeparator className="bg-white/10 my-1" />
+
+                                        {customFields.length > 0 && (
+                                          <>
+                                            <DropdownMenuLabel className="text-xs text-gray-500 uppercase tracking-wider px-2 py-1.5 mt-2">
+                                              Campos Personalizados
+                                            </DropdownMenuLabel>
+                                            {customFields.slice(0, 10).map(field => (
+                                              <DropdownMenuItem
+                                                key={field.id}
+                                                className="text-sm cursor-pointer hover:bg-zinc-800 focus:bg-zinc-800 px-2 py-1.5 rounded-sm flex items-center gap-2 outline-none"
+                                                onClick={() => applyQuickFill({ where: m.where, key: m.key, buttonIndex: m.buttonIndex }, `{{${field.key}}}`)}
+                                              >
+                                                <div className="text-amber-400 font-mono text-[10px] w-3.5 text-center">#</div>
+                                                <span>{field.label}</span>
+                                              </DropdownMenuItem>
+                                            ))}
+                                          </>
+                                        )}
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                  </div>
+                                </div>
+                              );
+                            })}
+
+                            {missingSummary.length > 6 && (
+                              <p className="text-[10px] text-gray-500">Mostrando 6 de {missingSummary.length} pendências.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {precheckResult.totals.skipped > 0 && (
+                        <details className="bg-zinc-950/30 border border-white/5 rounded-lg p-3">
+                          <summary className="cursor-pointer text-gray-300 font-medium">
+                            Ver ignorados (motivo + ação)
+                          </summary>
+
+                          <div className="mt-3 overflow-x-auto">
+                            <table className="w-full text-left">
+                              <thead className="text-[10px] uppercase tracking-wider text-gray-500">
+                                <tr>
+                                  <th className="py-2 pr-3">Contato</th>
+                                  <th className="py-2 pr-3">Telefone</th>
+                                  <th className="py-2 pr-3">Motivo</th>
+                                  <th className="py-2 pr-3">Ação</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-white/5">
+                                {precheckResult.results
+                                  .filter((r: any) => !r.ok)
+                                  .slice(0, 20)
+                                  .map((r: any, idx: number) => (
+                                    <tr key={`${r.phone}_${idx}`}>
+                                      <td className="py-2 pr-3 text-gray-200">{r.name}</td>
+                                      <td className="py-2 pr-3 font-mono text-[11px] text-gray-500">{r.normalizedPhone || r.phone}</td>
+                                      <td className="py-2 pr-3 text-amber-200/80">{r.reason || r.skipCode}</td>
+                                      <td className="py-2 pr-3">
+                                        {r.contactId ? (
+                                          <a
+                                            href={`/contacts?edit=${encodeURIComponent(r.contactId)}`}
+                                            className="text-primary-400 hover:text-primary-300 underline underline-offset-2"
+                                          >
+                                            Editar contato
+                                          </a>
+                                        ) : (
+                                          <span className="text-gray-600">-</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                            {precheckResult.totals.skipped > 20 && (
+                              <p className="mt-2 text-[10px] text-gray-500">Mostrando 20 de {precheckResult.totals.skipped} ignorados.</p>
+                            )}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Scheduling Options */}

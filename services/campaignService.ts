@@ -45,6 +45,26 @@ interface CampaignStatusResponse {
   messages: RealMessageStatus[];
 }
 
+interface PrecheckContactInput {
+  id?: string;
+  contactId?: string;
+  contact_id?: string;
+  name?: string;
+  phone: string;
+  email?: string | null;
+  custom_fields?: Record<string, unknown>;
+}
+
+export interface CampaignPrecheckResult {
+  ok: true;
+  templateName: string;
+  totals: { total: number; valid: number; skipped: number };
+  results: Array<
+    | { ok: true; contactId?: string; name: string; phone: string; normalizedPhone: string }
+    | { ok: false; contactId?: string; name: string; phone: string; normalizedPhone?: string; skipCode: string; reason: string }
+  >;
+}
+
 export const campaignService = {
   getAll: async (): Promise<Campaign[]> => {
     // Fetch from real API
@@ -173,6 +193,25 @@ export const campaignService = {
     }
 
     return newCampaign;
+  },
+
+  // Dry-run: valida contatos/variáveis SEM criar campanha e SEM persistir.
+  precheck: async (input: { templateName: string; contacts: PrecheckContactInput[]; templateVariables?: { header: string[], body: string[], buttons?: Record<string, string> } }): Promise<CampaignPrecheckResult> => {
+    const response = await fetch('/api/campaign/precheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        templateName: input.templateName,
+        contacts: input.contacts,
+        templateVariables: input.templateVariables,
+      }),
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(payload?.error || 'Falha ao validar destinatários')
+    }
+    return payload as CampaignPrecheckResult
   },
 
   // Internal: dispatch campaign to backend queue

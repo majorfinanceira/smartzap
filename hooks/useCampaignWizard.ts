@@ -36,6 +36,10 @@ export const useCampaignWizardController = () => {
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [validationResult, setValidationResult] = useState<CampaignValidation | null>(null);
 
+  // Pré-check (dry-run) state
+  const [precheckResult, setPrecheckResult] = useState<any>(null);
+  const [isPrechecking, setIsPrechecking] = useState(false);
+
   // Account Limits Hook
   const { validate, limits, isLoading: limitsLoading, tierName } = useAccountLimits();
 
@@ -340,8 +344,52 @@ export const useCampaignWizardController = () => {
 
   const handleBack = () => setStep((prev) => Math.max(prev - 1, 1));
 
+  const runPrecheck = async () => {
+    if (!selectedTemplate?.name) {
+      toast.error('Selecione um template antes de validar');
+      return;
+    }
+    if (!contactsForSending || contactsForSending.length === 0) {
+      toast.error('Selecione pelo menos um contato');
+      return;
+    }
+
+    setIsPrechecking(true);
+    try {
+      const result = await campaignService.precheck({
+        templateName: selectedTemplate.name,
+        contacts: contactsForSending,
+        templateVariables:
+          (templateVariables.header.length > 0 || templateVariables.body.length > 0 || (templateVariables.buttons && Object.keys(templateVariables.buttons).length > 0))
+            ? templateVariables
+            : undefined,
+      });
+
+      setPrecheckResult(result);
+
+      const skipped = result?.totals?.skipped ?? 0;
+      const valid = result?.totals?.valid ?? 0;
+      if (skipped > 0) {
+        toast.warning(`Pré-check: ${valid} válidos, ${skipped} serão ignorados (ver detalhes)`);
+      } else {
+        toast.success(`Pré-check OK: ${valid} destinatários válidos`);
+      }
+
+      return result;
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao validar destinatários');
+      return null;
+    } finally {
+      setIsPrechecking(false);
+    }
+  };
+
+  const handlePrecheck = async (): Promise<void> => {
+    await runPrecheck();
+  };
+
   // INTELLIGENT VALIDATION - Prevents users from sending campaigns that exceed limits
-  const handleSend = (scheduleTime?: string) => {
+  const handleSend = async (scheduleTime?: string) => {
     // Validate that all required template variables are filled
     if (templateVariableCount > 0) {
       // Check if we have enough keys filled? 
@@ -350,11 +398,26 @@ export const useCampaignWizardController = () => {
       // Or better: are any values empty?
       // Since we initialize empty, we rely on user filling them.
 
-      const filledCount = [...templateVariables.header, ...templateVariables.body].filter(v => v && v.trim() !== '').length;
+      const isFilled = (v: unknown) => {
+        if (typeof v !== 'string') return false;
+        return v.trim().length > 0;
+      };
+
+      const filledCount =
+        [...templateVariables.header, ...templateVariables.body].filter(isFilled).length +
+        Object.values(templateVariables.buttons || {}).filter(isFilled).length;
       if (filledCount < templateVariableCount) {
         toast.error(`Preencha todas as variáveis do template (${templateVariableCount - filledCount} pendentes)`);
         return;
       }
+    }
+
+    // Dry-run pré-check antes de criar/disparar (UX). Backend continua blindado.
+    // Regra: se NENHUM válido, não cria a campanha.
+    const result = await runPrecheck();
+    if (result?.totals && result.totals.valid === 0) {
+      toast.error('Nenhum destinatário válido para envio. Corrija os contatos ignorados e valide novamente.');
+      return;
     }
 
     // Validate campaign against account limits
@@ -420,9 +483,14 @@ export const useCampaignWizardController = () => {
     selectedTemplate,
     handleNext,
     handleBack,
+    handlePrecheck,
     handleSend,
     isCreating: createCampaignMutation.isPending,
     isLoading: contactsQuery.isLoading || templatesQuery.isLoading || limitsLoading || settingsQuery.isLoading || testContactQuery.isLoading,
+
+    // Pré-check (dry-run)
+    precheckResult,
+    isPrechecking,
 
     // Test Contact
     testContact,

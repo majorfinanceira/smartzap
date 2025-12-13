@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { contactService } from '../services';
@@ -10,6 +11,9 @@ const ITEMS_PER_PAGE = 10;
 
 export const useContactsController = () => {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  // Em alguns ambientes de teste o mock pode retornar null/undefined.
+  const editFromUrl = (searchParams as any)?.get?.('edit') as string | null;
 
   // UI State
   const [searchTerm, setSearchTerm] = useState('');
@@ -40,6 +44,17 @@ export const useContactsController = () => {
       return { list: data, byId: normalized };
     }
   });
+
+  // Deep-link: /contacts?edit=<id> abre o modal de edição do contato.
+  useEffect(() => {
+    if (!editFromUrl) return;
+    const byId = contactsQuery.data?.byId;
+    const contact = byId?.[editFromUrl];
+    if (!contact) return;
+
+    setEditingContact(contact);
+    setIsEditModalOpen(true);
+  }, [editFromUrl, contactsQuery.data]);
 
   const statsQuery = useQuery({
     queryKey: ['contactStats'],

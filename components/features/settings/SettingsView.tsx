@@ -5,6 +5,7 @@ import { AppSettings } from '../../../types';
 import { AccountLimits } from '../../../lib/meta-limits';
 import { PhoneNumber } from '../../../hooks/useSettings';
 import { AISettings } from './AISettings';
+import { formatPhoneNumberDisplay } from '../../../lib/phone-formatter';
 
 interface WebhookStats {
   lastEventAt?: string | null;
@@ -167,7 +168,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       await saveTestContact({
         name: testContactName.trim(),
-        phone: testContactPhone.trim().replace(/\D/g, ''),
+        phone: testContactPhone.trim(),
       });
       setIsEditingTestContact(false);
     } catch {
@@ -540,7 +541,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                   <div>
                     <p className="font-medium text-white">{testContact.name || 'Contato de Teste'}</p>
-                    <p className="text-sm text-amber-400 font-mono">+{testContact.phone}</p>
+                    <p className="text-sm text-amber-400 font-mono">{formatPhoneNumberDisplay(testContact.phone, 'international')}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -586,7 +587,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       type="tel"
                       value={testContactPhone}
                       onChange={(e) => setTestContactPhone(e.target.value)}
-                      placeholder="Ex: 5511999999999"
+                      placeholder="Ex: +5511999999999"
                       className="w-full px-4 py-3 bg-zinc-900/50 border border-white/10 rounded-xl focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none text-sm text-white font-mono transition-all"
                     />
                   </div>

@@ -118,6 +118,7 @@ export interface CustomFieldDefinition {
 export interface Message {
   id: string;
   campaignId: string;
+  contactId?: string;
   contactName: string;
   contactPhone: string;
   status: MessageStatus;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PrefetchLink } from '@/components/ui/PrefetchLink';
-import { ChevronLeft, Clock, CheckCircle2, Eye, AlertCircle, Download, Search, Filter, RefreshCw, Pause, Play, Calendar, Loader2, X, FileText, Ban } from 'lucide-react';
+import { ChevronLeft, Clock, CheckCircle2, Eye, AlertCircle, Download, Search, Filter, RefreshCw, Pause, Play, Calendar, Loader2, X, FileText, Ban, Pencil } from 'lucide-react';
 import { Campaign, CampaignStatus, Message, MessageStatus, Template } from '../../../types';
 import { TemplatePreviewRenderer } from '../templates/TemplatePreviewRenderer';
 import { templateService } from '../../../services';
@@ -417,6 +417,7 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
                 <th className="px-6 py-3 font-medium">Status</th>
                 <th className="px-6 py-3 font-medium">Horário</th>
                 <th className="px-6 py-3 font-medium">Info</th>
+                <th className="px-6 py-3 font-medium">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -444,11 +445,24 @@ export const CampaignDetailsView: React.FC<CampaignDetailsViewProps> = ({
                       <span className="text-gray-600 text-xs">-</span>
                     )}
                   </td>
+                  <td className="px-6 py-3">
+                    {msg.contactId ? (
+                      <button
+                        onClick={() => navigate(`/contacts?edit=${encodeURIComponent(msg.contactId!)}`)}
+                        className="inline-flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300 transition-colors"
+                        title="Abrir contato para edição"
+                      >
+                        <Pencil size={12} /> Editar contato
+                      </button>
+                    ) : (
+                      <span className="text-gray-600 text-xs">-</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {messages.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">Nenhum registro encontrado.</td>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">Nenhum registro encontrado.</td>
                 </tr>
               )}
             </tbody>

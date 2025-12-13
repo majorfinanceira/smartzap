@@ -29,10 +29,13 @@ export default function NewCampaignPage() {
       selectedTemplate={controller.selectedTemplate}
       handleNext={controller.handleNext}
       handleBack={controller.handleBack}
+      handlePrecheck={controller.handlePrecheck}
       handleSend={controller.handleSend}
       isCreating={controller.isCreating}
       isLoading={controller.isLoading}
       testContact={controller.testContact}
+      precheckResult={controller.precheckResult}
+      isPrechecking={controller.isPrechecking}
       // Template Variables
       templateVariables={controller.templateVariables}
       setTemplateVariables={controller.setTemplateVariables}

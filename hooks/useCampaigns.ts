@@ -24,6 +24,7 @@ export const useCampaignMutations = () => {
 
   // Track which IDs are currently being processed
   const [processingDeleteId, setProcessingDeleteId] = useState<string | undefined>(undefined);
+  const [processingDuplicateId, setProcessingDuplicateId] = useState<string | undefined>(undefined);
 
   const deleteMutation = useMutation({
     mutationFn: campaignService.delete,
@@ -65,17 +66,39 @@ export const useCampaignMutations = () => {
     },
   });
 
+  const duplicateMutation = useMutation({
+    mutationFn: campaignService.duplicate,
+    onMutate: async (id: string) => {
+      setProcessingDuplicateId(id);
+      // Evita refetch simultâneo durante a duplicação
+      await queryClient.cancelQueries({ queryKey: ['campaigns'] });
+      return { id };
+    },
+    onSuccess: () => {
+      // Server-side cache foi invalidado via revalidateTag (quando aplicável)
+      queryClient.invalidateQueries({ queryKey: ['campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['recentCampaigns'] });
+    },
+    onSettled: () => {
+      setProcessingDuplicateId(undefined);
+    },
+  });
+
   return {
     deleteCampaign: deleteMutation.mutate,
     isDeleting: deleteMutation.isPending,
     deletingId: processingDeleteId,
+
+    duplicateCampaign: duplicateMutation.mutate,
+    isDuplicating: duplicateMutation.isPending,
+    duplicatingId: processingDuplicateId,
   };
 };
 
 // --- Controller Hook (Smart) ---
 export const useCampaignsController = (initialData?: Campaign[]) => {
   const { data: campaigns = [], isLoading, error, refetch } = useCampaignsQuery(initialData);
-  const { deleteCampaign, isDeleting, deletingId } = useCampaignMutations();
+  const { deleteCampaign, duplicateCampaign, isDeleting, deletingId, isDuplicating, duplicatingId } = useCampaignMutations();
 
   // UI State
   const [filter, setFilter] = useState<string>('All');
@@ -103,6 +126,10 @@ export const useCampaignsController = (initialData?: Campaign[]) => {
     refetch();
   };
 
+  const handleDuplicate = (id: string) => {
+    duplicateCampaign(id);
+  };
+
   return {
     // Data
     campaigns: filteredCampaigns,
@@ -119,10 +146,13 @@ export const useCampaignsController = (initialData?: Campaign[]) => {
 
     // Actions
     onDelete: handleDelete,
+    onDuplicate: handleDuplicate,
     onRefresh: handleRefresh,
 
     // Loading states for specific items
     isDeleting,
     deletingId,
+    isDuplicating,
+    duplicatingId,
   };
 };
