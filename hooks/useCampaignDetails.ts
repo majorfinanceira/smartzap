@@ -8,6 +8,8 @@ import { CampaignStatus, MessageStatus, Message } from '../types';
 
 // Polling interval as backup while Realtime is connected (60 seconds)
 const BACKUP_POLLING_INTERVAL = 60 * 1000;
+// Fallback polling when Realtime is not connected (keeps stats fresh without F5)
+const DISCONNECTED_POLLING_INTERVAL = 10 * 1000;
 
 export const useCampaignDetailsController = () => {
   const { id } = useParams<{ id: string }>();
@@ -37,16 +39,23 @@ export const useCampaignDetailsController = () => {
   });
 
   // Polling logic:
-  // - Small campaigns with Realtime: 60s backup polling
-  // - Large campaigns (>= 10k) without Realtime: 60s primary polling
+  // - Connected via Realtime: 60s backup polling
+  // - Disconnected (Realtime caiu): 10s fallback polling
+  // - Large campaigns (>= 10k): polling only
   const isActiveCampaign = campaign?.status === CampaignStatus.SENDING ||
     campaign?.status === CampaignStatus.SCHEDULED ||
     campaign?.status === CampaignStatus.COMPLETED;
 
   const isLargeCampaign = (campaign?.recipients || 0) >= 10000;
 
-  // Poll if: (connected as backup) OR (large campaign needs polling as primary)
-  const shouldPoll = isActiveCampaign && (isRealtimeConnected || isLargeCampaign);
+  // Poll if: (connected as backup) OR (disconnected fallback) OR (large campaign needs polling as primary)
+  const shouldPoll = isActiveCampaign && (isRealtimeConnected || !isRealtimeConnected || isLargeCampaign);
+
+  const pollingInterval = useMemo(() => {
+    if (!shouldPoll) return false as const;
+    if (isLargeCampaign) return BACKUP_POLLING_INTERVAL;
+    return isRealtimeConnected ? BACKUP_POLLING_INTERVAL : DISCONNECTED_POLLING_INTERVAL;
+  }, [shouldPoll, isLargeCampaign, isRealtimeConnected]);
 
   // Fetch messages with optional polling
   const messagesQuery = useQuery({
@@ -55,7 +64,7 @@ export const useCampaignDetailsController = () => {
     enabled: !!id,
     staleTime: 5000,
     // Backup polling only while connected and active
-    refetchInterval: shouldPoll ? BACKUP_POLLING_INTERVAL : false,
+    refetchInterval: pollingInterval,
   });
 
   // Add polling to campaign query too
@@ -64,7 +73,7 @@ export const useCampaignDetailsController = () => {
     queryFn: () => campaignService.getById(id!),
     enabled: !!id && !id.startsWith('temp_'),
     staleTime: 5000,
-    refetchInterval: shouldPoll ? BACKUP_POLLING_INTERVAL : false,
+    refetchInterval: pollingInterval,
   });
 
   // Use the campaign data (prefer the polling-enabled query)

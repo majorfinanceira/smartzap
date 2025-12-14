@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { CampaignStatus } from '@/types'
 import { getUserFriendlyMessage } from '@/lib/whatsapp-errors'
 import { buildMetaTemplatePayload, precheckContactForTemplate } from '@/lib/whatsapp/template-contract'
+import { emitWorkflowTrace, maskPhone, timePhase } from '@/lib/workflow-trace'
 
 interface Contact {
   contactId: string
@@ -15,6 +16,7 @@ interface Contact {
 
 interface CampaignWorkflowInput {
   campaignId: string
+  traceId?: string
   templateName: string
   contacts: Contact[]
   templateVariables?: { header: string[], body: string[], buttons?: Record<string, string> }  // Meta API structure
@@ -124,7 +126,24 @@ async function updateContactStatus(
 // Each step is a separate HTTP request, bypasses Vercel 10s timeout
 export const { POST } = serve<CampaignWorkflowInput>(
   async (context) => {
-    const { campaignId, templateName, contacts, templateVariables, phoneNumberId, accessToken, templateSnapshot } = context.requestPayload
+    const { campaignId, templateName, contacts, templateVariables, phoneNumberId, accessToken, templateSnapshot, traceId: incomingTraceId } = context.requestPayload
+
+    const traceId = (incomingTraceId && String(incomingTraceId).trim().length > 0)
+      ? String(incomingTraceId).trim()
+      : `wf_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
+    await emitWorkflowTrace({
+      traceId,
+      campaignId,
+      step: 'workflow',
+      phase: 'start',
+      ok: true,
+      extra: {
+        contacts: contacts?.length || 0,
+        hasTemplateSnapshot: Boolean(templateSnapshot),
+        isResend: Boolean((context.requestPayload as any)?.isResend),
+      },
+    })
 
     // HARDENING: workflow é estritamente baseado em contact_id.
     // Se vier algum contato sem contactId, é bug no dispatch/resend e devemos falhar cedo.
@@ -148,13 +167,15 @@ export const { POST } = serve<CampaignWorkflowInput>(
         completedAt: null,
       })
 
-      console.log(`📊 Campaign ${campaignId} started with ${contacts.length} contacts`)
+      console.log(`📊 Campaign ${campaignId} started with ${contacts.length} contacts (traceId=${traceId})`)
       console.log(`📝 Template variables: ${JSON.stringify(templateVariables || [])}`)
     })
 
-    // Step 2: Process contacts in batches of 40
+    // Step 2: Process contacts in smaller batches
     // Each batch is a separate step = separate HTTP request = bypasses 10s limit
-    const BATCH_SIZE = 40
+    // Observação: cada contato faz múltiplas operações (DB + fetch Meta).
+    // Para evitar timeout por step (Vercel), mantemos batches pequenos.
+    const BATCH_SIZE = 10
     const batches: Contact[][] = []
 
     for (let i = 0; i < contacts.length; i += BATCH_SIZE) {
@@ -165,45 +186,42 @@ export const { POST } = serve<CampaignWorkflowInput>(
       const batch = batches[batchIndex]
 
       await context.run(`send-batch-${batchIndex}`, async () => {
+        const step = `send-batch-${batchIndex}`
+
+        await emitWorkflowTrace({
+          traceId,
+          campaignId,
+          step,
+          batchIndex,
+          phase: 'batch_start',
+          ok: true,
+          extra: { batchSize: batch.length, batches: batches.length },
+        })
+
         let sentCount = 0
         let failedCount = 0
         let skippedCount = 0
+        let metaTimeMs = 0
+        let dbTimeMs = 0
 
         const template: any = templateSnapshot || (await templateDb.getByName(templateName))
         if (!template) throw new Error(`Template ${templateName} não encontrado no banco local. Sincronize Templates.`)
 
+        // Check pause status once per batch (trade-off: no DB hit per contact)
+        const { data: campaignStatusAtBatchStart } = await supabase
+          .from('campaigns')
+          .select('status')
+          .eq('id', campaignId)
+          .single()
+
+        if (campaignStatusAtBatchStart?.status === CampaignStatus.PAUSED) {
+          console.log(`⏸️ Campaign ${campaignId} is paused, skipping batch ${batchIndex}`)
+          return
+        }
+
         for (const contact of batch) {
           try {
-            // Check if campaign is paused (via Supabase)
-            const { data: campaignStatus } = await supabase
-              .from('campaigns')
-              .select('status')
-              .eq('id', campaignId)
-              .single()
-
-            if (campaignStatus?.status === CampaignStatus.PAUSED) {
-              console.log(`⏸️ Campaign ${campaignId} is paused, skipping remaining`)
-              break
-            }
-
-            // Idempotência (at-least-once): se já foi processado, não reenviar
-            const existingQuery = supabase
-              .from('campaign_contacts')
-              .select('status, message_id')
-              .eq('campaign_id', campaignId)
-              .eq('contact_id', contact.contactId as string)
-
-            const { data: existingRow } = await existingQuery.single()
-
-            const existingStatus = (existingRow as any)?.status as string | undefined
-            if (existingStatus && ['sent', 'delivered', 'read', 'failed', 'skipped'].includes(existingStatus)) {
-              console.log(`↩️ Idempotência: ${contact.phone} já está em status=${existingStatus}, pulando.`)
-              continue
-            }
-            if (existingStatus === 'sending') {
-              console.log(`↩️ Idempotência: ${contact.phone} já está em status=sending (em progresso), pulando.`)
-              continue
-            }
+            const phoneMasked = maskPhone(contact.phone)
 
             // Contrato Ouro: pré-check/guard-rail por contato (documented-only)
             const precheck = precheckContactForTemplate(
@@ -219,9 +237,23 @@ export const { POST } = serve<CampaignWorkflowInput>(
             )
 
             if (!precheck.ok) {
+              const t0 = Date.now()
               await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'skipped', {
                 skipCode: precheck.skipCode,
                 skipReason: precheck.reason,
+              })
+              dbTimeMs += Date.now() - t0
+
+              await emitWorkflowTrace({
+                traceId,
+                campaignId,
+                step,
+                batchIndex,
+                contactId: contact.contactId,
+                phoneMasked,
+                phase: 'precheck_skip',
+                ok: true,
+                extra: { skipCode: precheck.skipCode, reason: precheck.reason },
               })
               skippedCount++
               console.log(`⏭️ Skipped ${contact.phone}: ${precheck.reason}`)
@@ -229,7 +261,11 @@ export const { POST } = serve<CampaignWorkflowInput>(
             }
 
             // Claim idempotente: só 1 executor envia por contato
-            const claimed = await claimPendingForSend(campaignId, { contactId: contact.contactId as string, phone: contact.phone })
+            const claimed = await timePhase(
+              'db_claim_pending',
+              { traceId, campaignId, step, batchIndex, contactId: contact.contactId, phoneMasked },
+              async () => claimPendingForSend(campaignId, { contactId: contact.contactId as string, phone: contact.phone })
+            )
             if (!claimed) {
               console.log(`↩️ Idempotência: ${contact.phone} não estava pending (ou já claimado), pulando envio.`)
               continue
@@ -243,8 +279,11 @@ export const { POST } = serve<CampaignWorkflowInput>(
               values: precheck.values,
             })
 
-            console.log('--- META API PAYLOAD (CONTRACT) ---', JSON.stringify(whatsappPayload, null, 2))
+            if (process.env.DEBUG_META_PAYLOAD === '1') {
+              console.log('--- META API PAYLOAD (CONTRACT) ---', JSON.stringify(whatsappPayload, null, 2))
+            }
 
+            const metaStart = Date.now()
             const response = await fetch(
               `https://graph.facebook.com/v24.0/${phoneNumberId}/messages`,
               {
@@ -258,12 +297,31 @@ export const { POST } = serve<CampaignWorkflowInput>(
             )
 
             const data = await response.json()
+            const metaMs = Date.now() - metaStart
+            metaTimeMs += metaMs
 
             if (response.ok && data.messages?.[0]?.id) {
               const messageId = data.messages[0].id
 
               // Update contact status in Supabase (stores message_id for webhook lookup)
-              await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'sent', { messageId })
+              {
+                const t0 = Date.now()
+                await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'sent', { messageId })
+                dbTimeMs += Date.now() - t0
+              }
+
+              await emitWorkflowTrace({
+                traceId,
+                campaignId,
+                step,
+                batchIndex,
+                contactId: contact.contactId,
+                phoneMasked,
+                phase: 'meta_send_ok',
+                ok: true,
+                ms: metaMs,
+                extra: { messageId },
+              })
 
               sentCount++
               console.log(`✅ Sent to ${contact.phone}`)
@@ -274,8 +332,31 @@ export const { POST } = serve<CampaignWorkflowInput>(
               const translatedError = getUserFriendlyMessage(errorCode) || originalError
               const errorWithCode = `(#${errorCode}) ${translatedError}`
 
+              await emitWorkflowTrace({
+                traceId,
+                campaignId,
+                step,
+                batchIndex,
+                contactId: contact.contactId,
+                phoneMasked,
+                phase: 'meta_send_fail',
+                ok: false,
+                ms: metaMs,
+                extra: {
+                  status: response.status,
+                  errorCode,
+                  errorType: data.error?.type,
+                  errorSubcode: data.error?.error_subcode,
+                  fbtrace_id: data.error?.fbtrace_id,
+                },
+              })
+
               // Update contact status in Supabase
-              await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'failed', { error: errorWithCode })
+              {
+                const t0 = Date.now()
+                await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'failed', { error: errorWithCode })
+                dbTimeMs += Date.now() - t0
+              }
 
               failedCount++
               console.log(`❌ Failed ${contact.phone}: ${errorWithCode}`)
@@ -288,7 +369,25 @@ export const { POST } = serve<CampaignWorkflowInput>(
             // Update contact status in Supabase
             const errorMsg = error instanceof Error ? error.message : 'Erro desconhecido'
             // Neste ponto, contactId é obrigatório (validado no início)
-            await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'failed', { error: errorMsg })
+            const phoneMasked = maskPhone(contact.phone)
+
+            await emitWorkflowTrace({
+              traceId,
+              campaignId,
+              step: `send-batch-${batchIndex}`,
+              batchIndex,
+              contactId: contact.contactId,
+              phoneMasked,
+              phase: 'contact_exception',
+              ok: false,
+              extra: { error: errorMsg },
+            })
+
+            {
+              const t0 = Date.now()
+              await updateContactStatus(campaignId, { contactId: contact.contactId as string, phone: contact.phone }, 'failed', { error: errorMsg })
+              dbTimeMs += Date.now() - t0
+            }
             failedCount++
             console.error(`❌ Error sending to ${contact.phone}:`, error)
           }
@@ -296,14 +395,38 @@ export const { POST } = serve<CampaignWorkflowInput>(
 
         // Update stats in Supabase (source of truth)
         // Supabase Realtime will propagate changes to frontend
-        const campaign = await campaignDb.getById(campaignId)
-        if (campaign) {
-          await campaignDb.updateStatus(campaignId, {
-            sent: campaign.sent + sentCount,
-            failed: campaign.failed + failedCount,
-            skipped: (campaign as any).skipped + skippedCount
-          })
-        }
+        await timePhase(
+          'db_update_campaign_counters',
+          { traceId, campaignId, step, batchIndex },
+          async () => {
+            const t0 = Date.now()
+            const campaign = await campaignDb.getById(campaignId)
+            if (campaign) {
+              await campaignDb.updateStatus(campaignId, {
+                sent: campaign.sent + sentCount,
+                failed: campaign.failed + failedCount,
+                skipped: (campaign as any).skipped + skippedCount,
+              })
+            }
+            dbTimeMs += Date.now() - t0
+          }
+        )
+
+        await emitWorkflowTrace({
+          traceId,
+          campaignId,
+          step,
+          batchIndex,
+          phase: 'batch_end',
+          ok: true,
+          extra: {
+            sentCount,
+            failedCount,
+            skippedCount,
+            metaTimeMs,
+            dbTimeMs,
+          },
+        })
 
         console.log(`📦 Batch ${batchIndex + 1}/${batches.length}: ${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped`)
       })
@@ -324,6 +447,15 @@ export const { POST } = serve<CampaignWorkflowInput>(
       })
 
       console.log(`🎉 Campaign ${campaignId} completed!`)
+
+      await emitWorkflowTrace({
+        traceId,
+        campaignId,
+        step: 'complete-campaign',
+        phase: 'complete',
+        ok: true,
+        extra: { finalStatus },
+      })
     })
   },
   {

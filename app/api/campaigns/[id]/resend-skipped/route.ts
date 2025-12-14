@@ -426,8 +426,11 @@ export async function POST(_request: Request, { params }: Params) {
 
     const isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')
 
+    const traceId = `resend_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+
     const workflowPayload = {
       campaignId,
+      traceId,
       templateName,
       contacts: validForResend,
       templateVariables,
@@ -467,6 +470,7 @@ export async function POST(_request: Request, { params }: Params) {
         status: 'queued',
         resent: validForResend.length,
         stillSkipped,
+        traceId,
         message: `${validForResend.length} contatos reenfileirados • ${stillSkipped} ainda ignorados`,
       },
       { status: 202 }

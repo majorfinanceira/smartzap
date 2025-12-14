@@ -40,8 +40,10 @@ export async function GET(request: Request, { params }: Params) {
     ] = await Promise.all([
       supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id),
       supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).in('status', ['pending', 'sending']),
-      supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).eq('status', 'sent'),
-      supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).eq('status', 'delivered'),
+      // "Enviado" (sent) deve incluir entregues e lidas para manter a progressão: sent >= delivered >= read
+      supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).in('status', ['sent', 'delivered', 'read']),
+      // Delivered inclui delivered + read
+      supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).in('status', ['delivered', 'read']),
       supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).eq('status', 'read'),
       supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).eq('status', 'skipped'),
       supabase.from('campaign_contacts').select('*', { count: 'exact', head: true }).eq('campaign_id', id).eq('status', 'failed')

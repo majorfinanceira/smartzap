@@ -365,8 +365,12 @@ export async function POST(request: NextRequest) {
     console.log(`[Dispatch] Template variables: ${JSON.stringify(resolvedTemplateVariables)}`)
     console.log(`[Dispatch] Is localhost: ${isLocalhost}`)
 
+    const traceId = `cmp_${campaignId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    console.log(`[Dispatch] traceId: ${traceId}`)
+
     const workflowPayload = {
       campaignId,
+      traceId,
       templateName,
       contacts: validContacts,
       templateVariables: resolvedTemplateVariables,
@@ -417,6 +421,7 @@ export async function POST(request: NextRequest) {
       status: 'queued',
       count: validContacts.length,
       skipped: skippedContacts.length,
+      traceId,
       message: `${validContacts.length} mensagens enfileiradas • ${skippedContacts.length} ignoradas por validação`
     }, { status: 202 })
 
