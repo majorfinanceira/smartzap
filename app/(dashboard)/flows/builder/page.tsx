@@ -38,7 +38,9 @@ export default function FlowBuilderHomePage() {
         onSearchChange={controller.setSearch}
         onCreate={controller.createFlow}
         onCreateFromTemplate={controller.createFlowFromTemplate}
+        onCreateWithAI={controller.createFlowWithAI}
         isCreating={controller.isCreating}
+        isCreatingWithAI={controller.isCreatingWithAI}
         onDelete={controller.deleteFlow}
         isDeleting={controller.isDeleting}
         onRefresh={() => controller.refetch()}

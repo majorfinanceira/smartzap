@@ -286,11 +286,79 @@ export async function generateJSON<T = unknown>(options: GenerateTextOptions): P
             .replace(/```\n?/g, '')
             .trim();
 
-        return JSON.parse(cleanText) as T;
+        // 1) tentativa direta
+        try {
+            return JSON.parse(cleanText) as T;
+        } catch {
+            // 2) fallback: às vezes o modelo insiste em adicionar texto antes/depois.
+            const extracted = extractFirstJsonValue(cleanText);
+            if (extracted) {
+                return JSON.parse(extracted) as T;
+            }
+            throw new Error('AI response was not valid JSON');
+        }
     } catch {
         console.error('[AI Service] Failed to parse JSON response:', result.text);
         throw new Error('AI response was not valid JSON');
     }
+}
+
+// =============================================================================
+// JSON EXTRACTION (fallback)
+// =============================================================================
+
+/**
+ * Extrai o primeiro valor JSON (objeto/array) encontrado dentro de um texto.
+ * Útil quando o modelo retorna algo como: "Aqui está o JSON: {...}".
+ */
+function extractFirstJsonValue(text: string): string | null {
+    const start = Math.min(
+        ...['{', '[']
+            .map((c) => text.indexOf(c))
+            .filter((i) => i >= 0)
+    );
+
+    if (!Number.isFinite(start) || start < 0) return null;
+
+    const open = text[start];
+    const close = open === '{' ? '}' : ']';
+
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let i = start; i < text.length; i += 1) {
+        const ch = text[i];
+
+        if (inString) {
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (ch === '\\') {
+                escaped = true;
+                continue;
+            }
+            if (ch === '"') {
+                inString = false;
+            }
+            continue;
+        }
+
+        if (ch === '"') {
+            inString = true;
+            continue;
+        }
+
+        if (ch === open) depth += 1;
+        if (ch === close) depth -= 1;
+
+        if (depth === 0) {
+            return text.slice(start, i + 1).trim();
+        }
+    }
+
+    return null;
 }
 
 // =============================================================================

@@ -197,13 +197,32 @@ export const CampaignListView: React.FC<CampaignListViewProps> = ({
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="flex-1 w-24 bg-zinc-800 rounded-full h-1">
-                          <div
-                            className="bg-primary-500 h-1 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]"
-                            style={{ width: `${(campaign.recipients ?? 0) > 0 ? ((campaign.delivered ?? 0) / (campaign.recipients ?? 1)) * 100 : 0}% ` }}
-                          />
+                          {(() => {
+                            // READ implica entrega. Em cenários onde a Meta manda READ sem DELIVERED
+                            // (ou quando o contador agregado ainda não reconciliou), garantimos
+                            // um valor de entrega coerente na lista.
+                            const recipients = campaign.recipients ?? 0
+                            const delivered = campaign.delivered ?? 0
+                            const read = campaign.read ?? 0
+                            const deliveredEffective = Math.max(delivered, read)
+                            const pct = recipients > 0 ? (deliveredEffective / Math.max(1, recipients)) * 100 : 0
+
+                            return (
+                              <div
+                                className="bg-primary-500 h-1 rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                                style={{ width: `${pct}%` }}
+                              />
+                            )
+                          })()}
                         </div>
                         <span className="text-xs text-gray-400 font-mono">
-                          {(campaign.recipients ?? 0) > 0 ? Math.round(((campaign.delivered ?? 0) / (campaign.recipients ?? 1)) * 100) : 0}%
+                          {(() => {
+                            const recipients = campaign.recipients ?? 0
+                            const delivered = campaign.delivered ?? 0
+                            const read = campaign.read ?? 0
+                            const deliveredEffective = Math.max(delivered, read)
+                            return recipients > 0 ? Math.round((deliveredEffective / Math.max(1, recipients)) * 100) : 0
+                          })()}%
                         </span>
                       </div>
                     </td>

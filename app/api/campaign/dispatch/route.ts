@@ -411,7 +411,54 @@ export async function POST(request: NextRequest) {
 
   // Persistir snapshot + status por contato (pending vs skipped)
   try {
-    const rowsPending = validContacts.map(c => ({
+    // HARDENING CRÍTICO:
+    // Não sobrescrever linhas já processadas (sent/delivered/read/failed/sending).
+    // Se uma chamada duplicada de dispatch/precheck rodar depois do envio,
+    // um upsert "cego" pode resetar status e apagar message_id — e então o
+    // webhook não consegue correlacionar delivery/read, parecendo que "parou".
+    const candidateContactIds = Array.from(
+      new Set(
+        [...validContacts.map((c) => c.contactId), ...skippedContacts.map((s) => String(s.contact.contactId || ''))]
+          .map((x) => String(x || '').trim())
+          .filter(Boolean)
+      )
+    )
+
+    const lockedContactIds = new Set<string>()
+    try {
+      if (candidateContactIds.length > 0) {
+        const { data: existingRows, error: existingErr } = await supabase
+          .from('campaign_contacts')
+          .select('contact_id,status,message_id')
+          .eq('campaign_id', campaignId)
+          .in('contact_id', candidateContactIds)
+
+        if (existingErr) throw existingErr
+
+        for (const r of (existingRows || []) as any[]) {
+          const cid = String(r?.contact_id || '').trim()
+          if (!cid) continue
+          const st = String(r?.status || '').toLowerCase()
+          // "sending" também deve ser bloqueado para não quebrar um envio em andamento.
+          if (st === 'sending' || st === 'sent' || st === 'delivered' || st === 'read' || st === 'failed') {
+            lockedContactIds.add(cid)
+            continue
+          }
+          // Segurança extra: se tiver message_id, jamais mexer.
+          if (r?.message_id) {
+            lockedContactIds.add(cid)
+          }
+        }
+      }
+    } catch (e) {
+      // Se não conseguimos carregar estado existente, seguimos com o comportamento atual.
+      // (Mas registramos para diagnóstico.)
+      console.warn('[Dispatch] Falha ao carregar campaign_contacts existentes para lock (seguindo sem lock):', e)
+      lockedContactIds.clear()
+    }
+    const rowsPending = validContacts
+      .filter((c) => !lockedContactIds.has(String(c.contactId)))
+      .map(c => ({
       campaign_id: campaignId,
       contact_id: c.contactId || null,
       phone: c.phone,
@@ -425,7 +472,9 @@ export async function POST(request: NextRequest) {
       error: null,
     }))
 
-    const rowsSkipped = skippedContacts.map(({ contact, code, reason, normalizedPhone }) => ({
+    const rowsSkipped = skippedContacts
+      .filter(({ contact }) => !lockedContactIds.has(String(contact.contactId || '')))
+      .map(({ contact, code, reason, normalizedPhone }) => ({
       campaign_id: campaignId,
       contact_id: contact.contactId || null,
       phone: normalizedPhone || contact.phone,
@@ -445,6 +494,12 @@ export async function POST(request: NextRequest) {
     // Monta todas as linhas e dedupe pela chave de idempotência.
     // Preferimos "pending" quando houver colisão (contato válido vence).
     const allRows = [...rowsSkipped, ...rowsPending]
+
+    if (lockedContactIds.size > 0) {
+      console.warn(
+        `[Dispatch] Lock ativo: ${lockedContactIds.size} contato(s) já processado(s) e não serão sobrescritos no precheck.`
+      )
+    }
 
     const dedupedRows = dedupeBy(allRows, (r) => `${String(r.campaign_id)}::${String(r.contact_id)}`)
     if (allRows.length) {
@@ -474,6 +529,38 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[Dispatch] Pré-check: ${validContacts.length} válidos, ${skippedContacts.length} ignorados (skipped)`)
+
+    // Reconciliar contadores da campanha com o que foi efetivamente persistido.
+    // Motivo: contatos "skipped" no pré-check não passam pelo workflow, então
+    // `campaigns.skipped` pode ficar 0 mesmo com linhas skipped em `campaign_contacts`.
+    // Best-effort (não deve bloquear o disparo).
+    try {
+      const [{ count: totalCount, error: totalErr }, { count: skippedCount, error: skippedErr }] = await Promise.all([
+        supabase
+          .from('campaign_contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('campaign_id', campaignId),
+        supabase
+          .from('campaign_contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('campaign_id', campaignId)
+          .eq('status', 'skipped'),
+      ])
+
+      if (totalErr) throw totalErr
+      if (skippedErr) throw skippedErr
+
+      const updateCampaign: Record<string, unknown> = { updated_at: nowIso }
+      if (typeof totalCount === 'number') updateCampaign.total_recipients = totalCount
+      if (typeof skippedCount === 'number') updateCampaign.skipped = skippedCount
+
+      await supabase
+        .from('campaigns')
+        .update(updateCampaign)
+        .eq('id', campaignId)
+    } catch (e) {
+      console.warn('[Dispatch] Falha ao reconciliar contadores da campanha (best-effort):', e)
+    }
   } catch (error) {
     console.error('[Dispatch] Failed to persist pre-check results:', error)
     const details = error instanceof Error ? error.message : String(error)

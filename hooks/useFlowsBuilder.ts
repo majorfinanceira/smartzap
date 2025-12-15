@@ -31,6 +31,51 @@ export const useFlowsBuilderController = () => {
     onError: (e: Error) => toast.error(e.message || 'Erro ao criar flow'),
   })
 
+  const createWithAIMutation = useMutation({
+    mutationFn: async (input: { name: string; prompt: string }) => {
+      const res = await fetch('/api/ai/generate-flow-form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: input.prompt,
+          titleHint: input.name,
+          maxQuestions: 10,
+        }),
+      })
+
+      const data = await res.json().catch(() => null)
+      if (!res.ok) {
+        const msg = (data?.error && String(data.error)) || 'Falha ao gerar Flow com IA'
+        const details = data?.details ? `: ${String(data.details)}` : ''
+        throw new Error(`${msg}${details}`)
+      }
+
+      const issues = Array.isArray(data?.issues) ? (data.issues as string[]) : []
+      if (issues.length > 0) {
+        throw new Error(`A IA gerou um formulário com ajustes pendentes: ${issues.join(', ')}`)
+      }
+
+      const form = data?.form
+      const flowJson = data?.flowJson
+      if (!form || !flowJson) throw new Error('Resposta inválida da IA (form/flowJson ausentes)')
+
+      const created = await flowsService.create({ name: input.name })
+
+      const baseSpec = created && typeof created.spec === 'object' && created.spec ? created.spec : {}
+      const nextSpec = { ...(baseSpec as any), form }
+
+      return await flowsService.update(created.id, {
+        spec: nextSpec,
+        flowJson,
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['flows'] })
+      toast.success('Flow criado com IA')
+    },
+    onError: (e: Error) => toast.error(e.message || 'Erro ao criar flow com IA'),
+  })
+
   const deleteMutation = useMutation({
     mutationFn: flowsService.remove,
     onSuccess: () => {
@@ -61,6 +106,9 @@ export const useFlowsBuilderController = () => {
     isCreating: createMutation.isPending,
 
     createFlowFromTemplate: (input: { name: string; templateKey: string }) => createFromTemplateMutation.mutate(input),
+
+    createFlowWithAI: (input: { name: string; prompt: string }) => createWithAIMutation.mutate(input),
+    isCreatingWithAI: createWithAIMutation.isPending,
 
     deleteFlow: (id: string) => deleteMutation.mutate(id),
     isDeleting: deleteMutation.isPending,

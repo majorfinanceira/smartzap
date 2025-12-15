@@ -99,7 +99,26 @@ REGRAS IMPORTANTES
 - Título e intro devem ser em pt-BR.
 
 FORMATO DE SAÍDA
-Retorne APENAS um JSON válido no formato:
+Retorne APENAS um JSON válido (STRICT JSON):
+- Sem markdown
+- Sem comentários
+- Sem texto antes/depois
+- Use aspas duplas em TODAS as chaves e strings
+- Não use trailing comma
+
+CONTRATO (schema informal)
+- title: string (1..140)
+- intro: string (0..400) | null | omitido
+- submitLabel: string (1..40) | null | omitido
+- fields: array (1..${maxQuestions})
+  - type: one of [short_text,long_text,email,phone,number,date,dropdown,single_choice,multi_choice,optin]
+  - label: string
+  - required: boolean
+  - placeholder: string|null (opcional)
+  - options: [{"title": string}] (somente quando type for dropdown/single_choice/multi_choice)
+  - text: string|null (somente quando type for optin)
+
+EXEMPLO (apenas referência de estrutura):
 {
   "title": "...",
   "intro": "...",
@@ -142,8 +161,10 @@ export async function POST(request: NextRequest) {
     const { prompt: userPrompt, titleHint, maxQuestions } = validation.data
 
     const aiRaw = await generateJSON<unknown>({
+      system:
+        'Você é um gerador de JSON estrito. Responda SOMENTE com um JSON válido que respeite o contrato solicitado. Não inclua explicações.',
       prompt: buildPrompt(userPrompt, titleHint || null, maxQuestions),
-      temperature: 0.4,
+      temperature: 0.2,
       maxOutputTokens: 1400,
     })
 
@@ -217,6 +238,16 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[AI] generate-flow-form error:', error)
     const message = error instanceof Error ? error.message : 'Falha ao gerar flow com IA'
+    if (message === 'AI response was not valid JSON') {
+      return NextResponse.json(
+        {
+          error: 'A IA não retornou JSON válido (formato fora do contrato). Tente novamente.',
+          details:
+            'Dica: escreva um prompt mais objetivo, evite múltiplos pedidos ao mesmo tempo e tente novamente. Se persistir, troque o provedor/modelo nas Configurações de IA.',
+        },
+        { status: 502 }
+      )
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

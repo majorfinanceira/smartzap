@@ -275,7 +275,7 @@ export async function POST(request: NextRequest) {
           // Lookup single row once (dedupe + context)
           const { data: existingUpdate } = await supabase
             .from('campaign_contacts')
-            .select('id, status, campaign_id, phone, trace_id')
+            .select('id, status, campaign_id, phone, trace_id, delivered_at')
             .eq('message_id', messageId)
             .single()
 
@@ -397,6 +397,41 @@ export async function POST(request: NextRequest) {
 
                 // Only increment campaign counter if we actually updated a row
                 if (updatedRowsRead && updatedRowsRead.length > 0) {
+                  // READ implica que também foi entregue. Em alguns casos a Meta manda READ
+                  // sem nunca mandar DELIVERED (ou DELIVERED se perde). Para manter a
+                  // progressão e evitar delivered < read, setamos delivered_at se estiver nulo
+                  // e incrementamos campaigns.delivered APENAS quando este campo foi preenchido agora.
+                  let shouldIncrementDelivered = false
+
+                  try {
+                    const hadDeliveredAt = Boolean((existingUpdate as any)?.delivered_at)
+                    if (!hadDeliveredAt) {
+                      const { data: deliveredAtRows, error: deliveredAtErr } = await supabase
+                        .from('campaign_contacts')
+                        .update({ delivered_at: nowRead })
+                        .eq('message_id', messageId)
+                        .is('delivered_at', null)
+                        .select('id')
+
+                      if (deliveredAtErr) throw deliveredAtErr
+                      if (deliveredAtRows && deliveredAtRows.length > 0) {
+                        shouldIncrementDelivered = true
+                      }
+                    }
+                  } catch (e) {
+                    console.warn('[Webhook] Falha ao garantir delivered_at em evento read (best-effort):', e)
+                  }
+
+                  if (shouldIncrementDelivered) {
+                    const { error: rpcDeliveredErr } = await supabase
+                      .rpc('increment_campaign_stat', {
+                        campaign_id_input: campaignId,
+                        field: 'delivered'
+                      })
+
+                    if (rpcDeliveredErr) console.error('Failed to increment delivered count (via read):', rpcDeliveredErr)
+                  }
+
                   // Increment campaign counter (Atomic RPC)
                   const { error: rpcError } = await supabase
                     .rpc('increment_campaign_stat', {

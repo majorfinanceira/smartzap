@@ -145,9 +145,8 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
   const children: any[] = []
 
   if (form.intro && form.intro.trim()) {
-    // Mantemos uma abordagem simples e compatível com os templates existentes.
     children.push({
-      type: 'BasicText',
+      type: 'TextBody',
       text: form.intro.trim(),
     })
   }
@@ -157,7 +156,7 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
       children.push({
         type: 'OptIn',
         name: field.name,
-        text: (field.text || field.label || '').trim() || 'Quero receber mensagens',
+        label: (field.text || field.label || '').trim() || 'Quero receber mensagens',
       })
       continue
     }
@@ -168,7 +167,7 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
         name: field.name,
         label: field.label,
         required: !!field.required,
-        options: Array.isArray(field.options) ? field.options : [],
+        'data-source': Array.isArray(field.options) ? field.options : [],
       })
       continue
     }
@@ -179,7 +178,7 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
         name: field.name,
         label: field.label,
         required: !!field.required,
-        options: Array.isArray(field.options) ? field.options : [],
+        'data-source': Array.isArray(field.options) ? field.options : [],
       })
       continue
     }
@@ -190,7 +189,7 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
         name: field.name,
         label: field.label,
         required: !!field.required,
-        options: Array.isArray(field.options) ? field.options : [],
+        'data-source': Array.isArray(field.options) ? field.options : [],
       })
       continue
     }
@@ -206,10 +205,8 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
     }
 
     if (field.type === 'number') {
-      // Os templates existentes usam TextEntry sem "input-type".
-      // Mantemos a compatibilidade e deixamos a validação real para depois.
       children.push({
-        type: 'TextEntry',
+        type: 'TextInput',
         name: field.name,
         label: field.label,
         required: !!field.required,
@@ -217,9 +214,19 @@ export function generateFlowJsonFromFormSpec(form: FlowFormSpecV1): Record<strin
       continue
     }
 
-    // short_text, long_text, email, phone (tudo como TextEntry por enquanto)
+    if (field.type === 'long_text') {
+      children.push({
+        type: 'TextArea',
+        name: field.name,
+        label: field.label,
+        required: !!field.required,
+      })
+      continue
+    }
+
+    // short_text, email, phone (e outros) como TextInput
     children.push({
-      type: 'TextEntry',
+      type: 'TextInput',
       name: field.name,
       label: field.label,
       required: !!field.required,

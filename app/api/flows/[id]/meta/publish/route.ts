@@ -16,6 +16,7 @@ import {
 } from '@/lib/meta-flows-api'
 import { MetaGraphApiError } from '@/lib/meta-flows-api'
 import { generateFlowJsonFromFormSpec, normalizeFlowFormSpec, validateFlowFormSpec } from '@/lib/flow-form'
+import { validateMetaFlowJson } from '@/lib/meta-flow-json-validator'
 
 const PublishSchema = z
   .object({
@@ -59,7 +60,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     const row = Array.isArray(data) ? data[0] : (data as any)
     if (!row) return NextResponse.json({ error: 'Flow não encontrado' }, { status: 404 })
 
-    const flowJson = extractFlowJson(row)
+    let flowJson = extractFlowJson(row)
 
     // Validação “local” (rápida) para evitar publicar algo obviamente inválido.
     // A validação oficial é da Meta e vem em validation_errors.
@@ -69,6 +70,42 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         {
           error: 'Ajustes necessários antes de publicar',
           issues: formIssues,
+        },
+        { status: 400 }
+      )
+    }
+
+    // Validação do schema do Flow JSON (mais próximo do que a Meta espera) antes de chamar a Graph API.
+    // Isso evita o "(100) Invalid parameter" sem contexto.
+    let localValidation = validateMetaFlowJson(flowJson)
+
+    // Se o flow_json persistido estiver legado/inválido, tentamos regenerar do spec.form automaticamente.
+    if (!localValidation.isValid && row?.spec?.form) {
+      const normalized = normalizeFlowFormSpec(row.spec.form, row?.name || 'Flow')
+      const regenerated = generateFlowJsonFromFormSpec(normalized)
+      const regeneratedValidation = validateMetaFlowJson(regenerated)
+
+      if (regeneratedValidation.isValid) {
+        flowJson = regenerated
+        localValidation = regeneratedValidation
+      }
+    }
+
+    if (!localValidation.isValid) {
+      const now = new Date().toISOString()
+      await supabase
+        .from('flows')
+        .update({
+          updated_at: now,
+          meta_last_checked_at: now,
+          meta_validation_errors: { source: 'local', ...localValidation },
+        })
+        .eq('id', id)
+
+      return NextResponse.json(
+        {
+          error: 'Flow JSON inválido para a Meta. Corrija os itens antes de publicar.',
+          validation: localValidation,
         },
         { status: 400 }
       )

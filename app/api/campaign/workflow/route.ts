@@ -1157,6 +1157,21 @@ export const { POST } = serve<CampaignWorkflowInput>(
             const t0 = Date.now()
             const campaign = await campaignDb.getById(campaignId)
             if (campaign) {
+              // Importante: `campaigns.last_sent_at` também é mantido por trigger (0007)
+              // baseado em `campaign_contacts.sent_at`. Como usamos bulk upsert, `sent_at`
+              // pode ser persistido *depois* do último meta_send_ok.
+              // Portanto, NUNCA devemos sobrescrever `last_sent_at` com um valor menor.
+              const safeLastSentAt = (() => {
+                const existing = (campaign as any).lastSentAt || null
+                const candidate = lastSentAtInBatch || null
+                if (!candidate) return existing
+                if (!existing) return candidate
+                const a = Date.parse(existing)
+                const b = Date.parse(candidate)
+                if (!Number.isFinite(a) || !Number.isFinite(b)) return existing || candidate
+                return (b > a) ? candidate : existing
+              })()
+
               await campaignDb.updateStatus(campaignId, {
                 sent: campaign.sent + sentCount,
                 failed: campaign.failed + failedCount,
@@ -1166,7 +1181,7 @@ export const { POST } = serve<CampaignWorkflowInput>(
                 firstDispatchAt: (campaign as any).firstDispatchAt || firstDispatchAtInBatch || null,
                 // Atualiza somente quando houve pelo menos 1 envio com sucesso neste batch.
                 // Importante: isso mede o tempo de disparo (sent), não entrega.
-                lastSentAt: lastSentAtInBatch || (campaign as any).lastSentAt || null,
+                lastSentAt: safeLastSentAt,
               })
             }
             dbTimeMs += Date.now() - t0

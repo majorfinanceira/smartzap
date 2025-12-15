@@ -4,12 +4,72 @@ import { useParams, useNavigate } from '@/lib/navigation';
 import { toast } from 'sonner';
 import { campaignService } from '../services';
 import { useCampaignRealtime } from './useCampaignRealtime';
-import { CampaignStatus, MessageStatus, Message } from '../types';
+import { Campaign, CampaignStatus, MessageStatus, Message } from '../types';
 
 // Polling interval as backup while Realtime is connected (60 seconds)
 const BACKUP_POLLING_INTERVAL = 60 * 1000;
 // Fallback polling when Realtime is not connected (keeps stats fresh without F5)
 const DISCONNECTED_POLLING_INTERVAL = 10 * 1000;
+
+function mergeCampaignCountersMonotonic(oldCampaign: Campaign | undefined, fresh: Campaign | undefined): Campaign | undefined {
+  if (!fresh) return oldCampaign;
+  if (!oldCampaign) return fresh;
+
+  // Aceita reset explícito (ex.: voltar para DRAFT) para não travar valores antigos.
+  const looksLikeReset = (
+    fresh.status === CampaignStatus.DRAFT &&
+    !fresh.startedAt &&
+    Number(fresh.sent || 0) === 0 &&
+    Number(fresh.failed || 0) === 0 &&
+    Number(fresh.skipped || 0) === 0
+  );
+
+  if (looksLikeReset) return fresh;
+
+  const merged: Campaign = { ...fresh };
+  merged.sent = Math.max(Number(oldCampaign.sent || 0), Number(fresh.sent || 0));
+  merged.failed = Math.max(Number(oldCampaign.failed || 0), Number(fresh.failed || 0));
+  merged.skipped = Math.max(Number(oldCampaign.skipped || 0), Number(fresh.skipped || 0));
+  merged.delivered = Math.max(Number(oldCampaign.delivered || 0), Number(fresh.delivered || 0));
+  merged.read = Math.max(Number(oldCampaign.read || 0), Number(fresh.read || 0));
+  merged.recipients = Math.max(Number(oldCampaign.recipients || 0), Number(fresh.recipients || 0));
+  return merged;
+}
+
+function mergeMessageStatsMonotonic(
+  oldData: any,
+  freshData: any
+): any {
+  if (!freshData || typeof freshData !== 'object') return oldData;
+  if (!oldData || typeof oldData !== 'object') return freshData;
+  if (!freshData.stats || !oldData.stats) return freshData;
+
+  const oldStats = oldData.stats
+  const freshStats = freshData.stats
+
+  const sent = Math.max(Number(oldStats.sent || 0), Number(freshStats.sent || 0));
+  const failed = Math.max(Number(oldStats.failed || 0), Number(freshStats.failed || 0));
+  const skipped = Math.max(Number(oldStats.skipped || 0), Number(freshStats.skipped || 0));
+  const delivered = Math.max(Number(oldStats.delivered || 0), Number(freshStats.delivered || 0));
+  const read = Math.max(Number(oldStats.read || 0), Number(freshStats.read || 0));
+
+  const total = Math.max(Number(oldStats.total || 0), Number(freshStats.total || 0));
+  const pending = Math.max(0, total - (sent + failed + skipped));
+
+  return {
+    ...freshData,
+    stats: {
+      ...freshStats,
+      total,
+      pending,
+      sent,
+      delivered,
+      read,
+      skipped,
+      failed,
+    },
+  };
+}
 
 export const useCampaignDetailsController = () => {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +87,14 @@ export const useCampaignDetailsController = () => {
     queryFn: () => campaignService.getById(id!),
     enabled: !!id && !id.startsWith('temp_'),
     staleTime: 5000,
+    refetchInterval: pollingInterval,
+    onSuccess: (fresh) => {
+      // Merge monotônico para evitar regressão visual quando a UI aplicou deltas via Broadcast,
+      // mas o DB ainda não foi atualizado (bulk upsert no fim do batch).
+      queryClient.setQueryData(['campaign', id], (old: any) =>
+        mergeCampaignCountersMonotonic(old as Campaign | undefined, fresh as Campaign | undefined)
+      );
+    },
   });
 
   const campaign = campaignQuery.data;
@@ -71,6 +139,12 @@ export const useCampaignDetailsController = () => {
     staleTime: 5000,
     // Backup polling only while connected and active
     refetchInterval: pollingInterval,
+    onSuccess: (fresh) => {
+      // Atualiza stats de forma monotônica para evitar "pular pra trás".
+      queryClient.setQueriesData({ queryKey: ['campaignMessages', id] }, (old: any) =>
+        mergeMessageStatsMonotonic(old, fresh)
+      );
+    },
   });
 
   const activeCampaign = campaignQuery.data;
