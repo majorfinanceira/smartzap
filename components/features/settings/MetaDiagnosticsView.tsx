@@ -212,11 +212,11 @@ function DebugTokenSeal({ data }: { data?: MetaDiagnosticsResponse }) {
         </div>
       </div>
 
-      {enabled && dbg?.attempted && dbg?.ok === false && dbg?.error && (
+      {enabled && dbg?.attempted && dbg?.ok === false && dbg?.error != null ? (
         <div className="mt-4 text-xs text-gray-400">
           Detalhe: {typeof dbg.error === 'string' ? dbg.error : 'Falha ao validar via /debug_token'}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }
