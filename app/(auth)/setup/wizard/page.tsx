@@ -36,6 +36,8 @@ interface WizardData {
 
   // Step 3: Upstash
   qstashToken: string
+  qstashCurrentSigningKey: string
+  qstashNextSigningKey: string
   // Optional stats fields
   upstashEmail: string
   upstashApiKey: string
@@ -64,6 +66,8 @@ const initialData: WizardData = {
   supabaseAnonKey: '',
   supabaseServiceKey: '',
   qstashToken: '',
+  qstashCurrentSigningKey: '',
+  qstashNextSigningKey: '',
   upstashEmail: '',
   upstashApiKey: '',
   upstashRedisRestUrl: '',
@@ -221,6 +225,8 @@ function WizardContent() {
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY: 'supabaseAnonKey',
           SUPABASE_SECRET_KEY: 'supabaseServiceKey',
           QSTASH_TOKEN: 'qstashToken',
+          QSTASH_CURRENT_SIGNING_KEY: 'qstashCurrentSigningKey',
+          QSTASH_NEXT_SIGNING_KEY: 'qstashNextSigningKey',
           UPSTASH_EMAIL: 'upstashEmail',
           UPSTASH_API_KEY: 'upstashApiKey',
           UPSTASH_REDIS_REST_URL: 'upstashRedisRestUrl',
@@ -398,6 +404,14 @@ function WizardContent() {
       case 3:
         if (!data.qstashToken) {
           setError('Token do QStash é obrigatório')
+          return false
+        }
+        if (!data.qstashCurrentSigningKey) {
+          setError('Signing Key atual do QStash é obrigatória')
+          return false
+        }
+        if (data.qstashCurrentSigningKey.trim().length < 20) {
+          setError('Signing Key do QStash parece curta demais. Verifique se colou a chave correta.')
           return false
         }
         break
@@ -621,6 +635,8 @@ function WizardContent() {
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: data.supabaseAnonKey,
             SUPABASE_SECRET_KEY: data.supabaseServiceKey,
             QSTASH_TOKEN: data.qstashToken,
+            QSTASH_CURRENT_SIGNING_KEY: data.qstashCurrentSigningKey,
+            QSTASH_NEXT_SIGNING_KEY: data.qstashNextSigningKey,
             UPSTASH_EMAIL: data.upstashEmail,
             UPSTASH_API_KEY: data.upstashApiKey,
             // Persistimos também o perfil da empresa no modo local para que,
@@ -677,6 +693,8 @@ function WizardContent() {
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: data.supabaseAnonKey,
         SUPABASE_SECRET_KEY: data.supabaseServiceKey,
         QSTASH_TOKEN: data.qstashToken,
+        QSTASH_CURRENT_SIGNING_KEY: data.qstashCurrentSigningKey,
+        QSTASH_NEXT_SIGNING_KEY: data.qstashNextSigningKey,
         UPSTASH_EMAIL: data.upstashEmail,
         UPSTASH_API_KEY: data.upstashApiKey,
         // Setup metadata for future resume mode
@@ -1117,6 +1135,30 @@ function WizardContent() {
                     autoFocus
                   />
                   <p className="text-xs text-zinc-500 mt-1">Encontre no QStash → <span className="font-medium">Quickstart</span> (variável <span className="font-mono">QSTASH_TOKEN</span>)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-1">QStash Signing Key (Current)</label>
+                  <input
+                    type="password"
+                    value={data.qstashCurrentSigningKey}
+                    onChange={(e) => updateField('qstashCurrentSigningKey', e.target.value)}
+                    placeholder="current-signing-key"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">Obrigatória para validar chamadas do QStash (variável <span className="font-mono">QSTASH_CURRENT_SIGNING_KEY</span>).</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-zinc-400 mb-1">QStash Signing Key (Next) — opcional</label>
+                  <input
+                    type="password"
+                    value={data.qstashNextSigningKey}
+                    onChange={(e) => updateField('qstashNextSigningKey', e.target.value)}
+                    placeholder="next-signing-key"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent font-mono text-sm"
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">Use apenas se estiver rotacionando chaves (variável <span className="font-mono">QSTASH_NEXT_SIGNING_KEY</span>).</p>
                 </div>
 
                 <div className="pt-4 mt-4 border-t border-zinc-800">

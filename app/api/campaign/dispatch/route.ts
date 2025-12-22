@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Client } from '@upstash/workflow'
+import { Receiver } from '@upstash/qstash'
 import { getWhatsAppCredentials } from '@/lib/whatsapp-credentials'
 import { supabase } from '@/lib/supabase'
 import { templateDb } from '@/lib/supabase-db'
@@ -10,6 +11,7 @@ import { getActiveSuppressionsByPhone } from '@/lib/phone-suppressions'
 import { fetchWithTimeout, safeJson } from '@/lib/server-http'
 
 import { CampaignStatus, ContactStatus } from '@/types'
+import { unauthorizedResponse, verifyApiKey } from '@/lib/auth'
 
 interface DispatchContact {
   contactId?: string
@@ -68,7 +70,40 @@ function dedupeBy<T>(items: T[], keyFn: (x: T) => string): T[] {
 // Generate simple ID
 // Trigger campaign dispatch workflow
 export async function POST(request: NextRequest) {
-  const body = await request.json()
+  const bodyText = await request.text()
+  const signature = request.headers.get('upstash-signature')
+  const cookieHeader = request.headers.get('cookie') || ''
+  const hasSession = cookieHeader.includes('smartzap_session=')
+
+  if (signature) {
+    const currentSigningKey = process.env.QSTASH_CURRENT_SIGNING_KEY
+    const nextSigningKey = process.env.QSTASH_NEXT_SIGNING_KEY
+    if (!currentSigningKey && !nextSigningKey) {
+      return NextResponse.json(
+        { error: 'QStash signing keys not configured. Set QSTASH_CURRENT_SIGNING_KEY.' },
+        { status: 500 }
+      )
+    }
+    const receiver = new Receiver({
+      currentSigningKey: currentSigningKey || '',
+      nextSigningKey: nextSigningKey || undefined,
+    })
+    try {
+      await receiver.verify({
+        signature,
+        body: bodyText,
+      })
+    } catch {
+      return NextResponse.json({ error: 'Invalid QStash signature' }, { status: 403 })
+    }
+  } else if (!hasSession) {
+    const authResult = await verifyApiKey(request)
+    if (!authResult.valid) {
+      return unauthorizedResponse(authResult.error)
+    }
+  }
+
+  const body = bodyText ? JSON.parse(bodyText) : {}
   const { campaignId, templateName, whatsappCredentials, templateVariables, flowId } = body
   const trigger: 'schedule' | 'manual' | string | undefined = body?.trigger
   const scheduledAtFromJob: string | undefined = body?.scheduledAt

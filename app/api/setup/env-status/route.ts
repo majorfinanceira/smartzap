@@ -22,6 +22,7 @@ export async function GET() {
 
         // QStash (required)
         qstashToken: !!process.env.QSTASH_TOKEN,
+        qstashSigningKey: !!process.env.QSTASH_CURRENT_SIGNING_KEY,
 
         // Redis (recommended)
         upstashRedisRestUrl: !!process.env.UPSTASH_REDIS_REST_URL,
@@ -38,7 +39,7 @@ export async function GET() {
     const steps = {
         password: status.masterPassword,
         database: status.supabaseUrl && status.supabaseAnonKey && status.supabaseServiceKey,
-        qstash: status.qstashToken,
+        qstash: status.qstashToken && status.qstashSigningKey,
         whatsapp: status.whatsappToken && status.whatsappPhoneId && status.whatsappBusinessId,
         redis: status.upstashRedisRestUrl && status.upstashRedisRestToken,
     }

@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
       'NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
       'SUPABASE_SECRET_KEY',
       'QSTASH_TOKEN',
+      'QSTASH_CURRENT_SIGNING_KEY',
     ]
 
     const missingFields = requiredFields.filter(field => !envVars[field])

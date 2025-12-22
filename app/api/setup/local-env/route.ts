@@ -34,6 +34,8 @@ const ALLOWED_KEYS = new Set([
   // Alias compat: some setups use this name for the service role key
   'SUPABASE_SERVICE_ROLE_KEY',
   'QSTASH_TOKEN',
+  'QSTASH_CURRENT_SIGNING_KEY',
+  'QSTASH_NEXT_SIGNING_KEY',
   'UPSTASH_EMAIL',
   'UPSTASH_API_KEY',
   // Upstash Redis (optional/recommended)

@@ -783,8 +783,12 @@ export const contactDb = {
     },
 
     // Aplica um campo customizado (merge) em vários contatos.
-    // Estratégia: lê custom_fields atuais em lote e faz upsert apenas da coluna custom_fields.
-    // Isso evita sobrescrever o objeto inteiro com apenas { key: value }.
+    // Estratégia: lê a linha inteira em lote e faz upsert com a linha completa,
+    // apenas alterando `custom_fields`.
+    //
+    // Motivo: Postgres pode validar constraints (ex.: NOT NULL em `phone`) no tuple
+    // do INSERT do UPSERT antes de resolver o conflito. Então um upsert “parcial”
+    // (id + custom_fields) pode falhar com erro de NOT NULL.
     bulkSetCustomField: async (
         ids: string[],
         key: string,
@@ -799,18 +803,22 @@ export const contactDb = {
 
         const { data, error } = await supabase
             .from('contacts')
-            .select('id,custom_fields')
+            .select('*')
             .in('id', contactIds)
 
         if (error) throw error
 
+        const now = new Date().toISOString()
         const rows = (data || []).map((row: any) => {
             const base = (row.custom_fields && typeof row.custom_fields === 'object') ? row.custom_fields : {}
             const merged = { ...(base as any), [k]: v }
+
+            // Mantém todos os campos existentes e atualiza apenas `custom_fields`.
+            // Isso garante que o UPSERT não quebre constraints de colunas obrigatórias.
             return {
-                id: row.id,
+                ...row,
                 custom_fields: merged,
-                updated_at: new Date().toISOString(),
+                updated_at: now,
             }
         })
 
