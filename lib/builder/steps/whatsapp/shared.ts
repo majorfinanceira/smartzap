@@ -22,7 +22,8 @@ export function resolveRecipient(input: ResolveRecipientInput): {
   ok: false;
   error: string;
 } {
-  const source = input.toSource || "manual";
+  const source =
+    input.toSource || (input.triggerData?.from ? "inbound" : "manual");
   const triggerData = input.triggerData ?? {};
   const inbound =
     (triggerData.from as string | undefined) ||
