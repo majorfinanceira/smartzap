@@ -28,13 +28,21 @@ const PublishSchema = z
   .strict()
 
 function extractFlowJson(row: any): unknown {
-  // Prioridade: flow_json persistido.
+  // Prioridade: SEMPRE regenerar do spec.form se existir.
+  // Isso garante que qualquer mudança no generateFlowJsonFromFormSpec
+  // (ex: inclusão do payload no on-click-action) seja aplicada automaticamente.
+  const form = row?.spec?.form
+  if (form) {
+    const normalized = normalizeFlowFormSpec(form, row?.name || 'Flow')
+    return generateFlowJsonFromFormSpec(normalized)
+  }
+
+  // Fallback: flow_json persistido (para flows legados sem spec.form)
   if (row?.flow_json) return row.flow_json
 
-  // Fallback: gerar a partir do spec.form.
-  const form = row?.spec?.form
-  const normalized = normalizeFlowFormSpec(form, row?.name || 'Flow')
-  return generateFlowJsonFromFormSpec(normalized)
+  // Último fallback: gerar vazio
+  const emptyNormalized = normalizeFlowFormSpec({}, row?.name || 'Flow')
+  return generateFlowJsonFromFormSpec(emptyNormalized)
 }
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

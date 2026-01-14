@@ -539,6 +539,8 @@ export default function FlowBuilderEditorPage({
                         })
 
                         setMetaFlowId(updated.meta_flow_id || '')
+                        toast.success('MiniApp publicada na Meta com sucesso!')
+                        router.push('/templates?tab=flows')
                       }}
                       disabled={controller.isSaving || controller.isPublishingToMeta}
                       className="bg-white text-black hover:bg-gray-200"

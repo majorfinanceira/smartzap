@@ -37,9 +37,12 @@ export class MetaAPIError extends Error {
             return "⚠️ Bloqueio de Política (Spam): A Meta classificou este conteúdo como abusivo ou spam. Tente mudar drasticamente o texto ou aguarde 24h.";
         }
 
-        // 2. Duplicate Name
+        // 2. Duplicate Name / Language
         if (error.code === 100 && error.error_subcode === 2388005) {
             return "⚠️ Nome Duplicado: Já existe um template com este nome (mesmo deletado). Mude o nome.";
+        }
+        if (error.code === 100 && error.error_subcode === 2388024) {
+            return "⚠️ Template Duplicado: Já existe um template com este nome e idioma na Meta. Mude o nome ou delete o existente no Business Manager.";
         }
         if (error.code === 135000) { // Sometimes generic generic for duplicates
             return "⚠️ Nome Indisponível: O nome do template já está em uso nesta conta.";

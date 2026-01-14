@@ -27,6 +27,39 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     // Valida e normaliza para o contrato atual
     const parsed = CreateTemplateSchema.parse(spec)
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // Validação de duplicata: verifica se já existe template com mesmo nome + idioma
+    // ──────────────────────────────────────────────────────────────────────────
+    const templateName = parsed.name
+    const templateLanguage = parsed.language || 'pt_BR'
+
+    const { data: existingTemplate } = await supabase
+      .from('templates')
+      .select('id, name, status')
+      .eq('name', templateName)
+      .eq('language', templateLanguage)
+      .neq('id', id) // Ignora o próprio rascunho
+      .neq('status', 'DRAFT') // Ignora outros rascunhos
+      .maybeSingle()
+
+    if (existingTemplate) {
+      const statusLabel = existingTemplate.status === 'APPROVED'
+        ? 'aprovado'
+        : existingTemplate.status === 'PENDING'
+          ? 'em análise'
+          : existingTemplate.status?.toLowerCase() || 'existente'
+
+      return NextResponse.json(
+        {
+          error: `Já existe um template "${templateName}" em ${templateLanguage} (${statusLabel}). Escolha outro nome ou edite o template existente.`,
+          code: 'DUPLICATE_TEMPLATE',
+          existingTemplateId: existingTemplate.id,
+          suggestion: 'rename', // Pode ser usado pelo frontend para sugerir ação
+        },
+        { status: 409 } // 409 Conflict
+      )
+    }
+
     // Cria na Meta (Cloud API)
     const result = await templateService.create(parsed as any)
 
