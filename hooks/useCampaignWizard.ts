@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@/lib/navigation';
 import { toast } from 'sonner';
@@ -7,9 +7,16 @@ import { settingsService } from '../services/settingsService';
 import { CampaignStatus, ContactStatus, MessageStatus, Template, TestContact } from '../types';
 import { useAccountLimits } from './useAccountLimits';
 import { CampaignValidation } from '../lib/meta-limits';
-import { countTemplateVariables } from '../lib/template-validator';
-import { getCountryCallingCodeFromPhone, normalizePhoneNumber } from '@/lib/phone-formatter';
-import { getBrazilUfFromPhone, isBrazilPhone } from '@/lib/br-geo';
+import { normalizePhoneNumber } from '@/lib/phone-formatter';
+import {
+  calculateAudienceStats,
+  getContactIdsByCriteria,
+  applyPreset,
+  findTopTag,
+  type AudienceCriteria,
+  type AudiencePresetId,
+} from '@/lib/business/audience';
+import { getTemplateVariableInfo } from '@/lib/business/template';
 
 export const useCampaignWizardController = () => {
   const navigate = useNavigate();
@@ -25,30 +32,9 @@ export const useCampaignWizardController = () => {
   const [contactSearchTerm, setContactSearchTerm] = useState('');
 
   // Jobs/Ive audience presets (simple, fast decisions)
-  type AudiencePresetId =
-    | 'opt_in'
-    | 'new_7d'
-    | 'tag_top'
-    | 'no_tags'
-    | 'manual'
-    | 'all'
-    | 'test'
-    | null;
+  // Types imported from @/lib/business/audience
 
-  type AudienceCriteria = {
-    status: 'OPT_IN' | 'OPT_OUT' | 'UNKNOWN' | 'ALL';
-    includeTag?: string | null;
-    createdWithinDays?: number | null;
-    excludeOptOut?: boolean;
-    noTags?: boolean;
-    uf?: string | null; // BR only (derivado via DDD)
-    ddi?: string | null; // País (DDI) derivado do telefone (ex.: "55")
-    customFieldKey?: string | null;
-    customFieldMode?: 'exists' | 'equals' | null;
-    customFieldValue?: string | null;
-  };
-
-  const [audiencePreset, setAudiencePreset] = useState<AudiencePresetId>(null);
+  const [audiencePreset, setAudiencePreset] = useState<AudiencePresetId | null>(null);
   const [audienceCriteria, setAudienceCriteria] = useState<AudienceCriteria>({
     status: 'OPT_IN',
     includeTag: null,
@@ -344,243 +330,30 @@ export const useCampaignWizardController = () => {
 
   const suppressedPhones = suppressionsQuery.data || new Set<string>();
 
-  const topTag = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of allContacts) {
-      for (const t of c.tags || []) {
-        const key = String(t || '').trim();
-        if (!key) continue;
-        counts.set(key, (counts.get(key) || 0) + 1);
-      }
-    }
-    let best: { tag: string; count: number } | null = null;
-    for (const [tag, count] of counts.entries()) {
-      if (!best || count > best.count) best = { tag, count };
-    }
-    return best?.tag || null;
-  }, [allContacts]);
+  // Use pure function from business logic
+  const topTag = useMemo(() => findTopTag(allContacts), [allContacts]);
 
-  const audienceStats = useMemo(() => {
-    let eligible = 0;
-    let optInEligible = 0;
-    let suppressed = 0;
-    let topTagEligible = 0;
-    let noTagsEligible = 0;
-    const ufCounts = new Map<string, number>();
-    const tagCounts = new Map<string, { label: string; count: number }>();
-    const ddiCounts = new Map<string, number>();
-    const customFieldCounts = new Map<string, number>();
+  // Use pure function from business logic
+  const audienceStats = useMemo(
+    () => calculateAudienceStats(allContacts, suppressedPhones, topTag),
+    [allContacts, suppressedPhones, topTag]
+  );
 
-    const top = (topTag || '').trim().toLowerCase();
-
-    for (const c of allContacts) {
-      const phone = normalizePhoneNumber(String((c as any)?.phone || '').trim());
-      const isSuppressed = !!phone && suppressedPhones.has(phone);
-      if (isSuppressed) suppressed += 1;
-
-      // Regra de negócio: opt-out nunca entra em audiência
-      if (c.status === ContactStatus.OPT_OUT) continue;
-      if (isSuppressed) continue;
-
-      eligible += 1;
-      if (c.status === ContactStatus.OPT_IN) optInEligible += 1;
-
-      const tags = (c.tags || []).map((t) => String(t || '').trim().toLowerCase()).filter(Boolean);
-      if (tags.length === 0) noTagsEligible += 1;
-      if (top && tags.includes(top)) topTagEligible += 1;
-
-      // Tags (elegíveis) - para seletor de tags no UI
-      for (const rawTag of c.tags || []) {
-        const label = String(rawTag || '').trim();
-        if (!label) continue;
-        const key = label.toLowerCase();
-        const curr = tagCounts.get(key);
-        if (!curr) tagCounts.set(key, { label, count: 1 });
-        else tagCounts.set(key, { label: curr.label, count: curr.count + 1 });
-      }
-
-      // UF (apenas BR) - calculado on-the-fly via DDD
-      if (isBrazilPhone(String((c as any)?.phone || '').trim())) {
-        const uf = getBrazilUfFromPhone(String((c as any)?.phone || '').trim());
-        if (uf) ufCounts.set(uf, (ufCounts.get(uf) || 0) + 1);
-      }
-
-      // DDI (País)
-      {
-        const ddi = getCountryCallingCodeFromPhone(String((c as any)?.phone || '').trim());
-        if (ddi) ddiCounts.set(ddi, (ddiCounts.get(ddi) || 0) + 1);
-      }
-
-      // Campos personalizados (conta quantos contatos elegíveis possuem cada key preenchida)
-      {
-        const cf = (c as any)?.custom_fields as Record<string, any> | undefined;
-        if (cf && typeof cf === 'object') {
-          for (const k of Object.keys(cf)) {
-            const key = String(k || '').trim();
-            if (!key) continue;
-            const v = (cf as any)[key];
-            const isEmpty = v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
-            if (isEmpty) continue;
-            customFieldCounts.set(key, (customFieldCounts.get(key) || 0) + 1);
-          }
-        }
-      }
-    }
-
-    const brUfCounts = Array.from(ufCounts.entries())
-      .map(([uf, count]) => ({ uf, count }))
-      .sort((a, b) => b.count - a.count || a.uf.localeCompare(b.uf));
-
-    const tagCountsEligible = Array.from(tagCounts.values())
-      .map(({ label, count }) => ({ tag: label, count }))
-      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-
-    const ddiCountsEligible = Array.from(ddiCounts.entries())
-      .map(([ddi, count]) => ({ ddi, count }))
-      .sort((a, b) => b.count - a.count || a.ddi.localeCompare(b.ddi));
-
-    const customFieldCountsEligible = Array.from(customFieldCounts.entries())
-      .map(([key, count]) => ({ key, count }))
-      .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-
-    return {
-      eligible,
-      optInEligible,
-      suppressed,
-      topTagEligible,
-      noTagsEligible,
-      brUfCounts,
-      tagCountsEligible,
-      ddiCountsEligible,
-      customFieldCountsEligible,
-    };
-  }, [allContacts, suppressedPhones, topTag]);
-
-  const computeContactIdsByCriteria = (criteria: AudienceCriteria) => {
-    const now = Date.now();
-    const withinMs = criteria.createdWithinDays ? criteria.createdWithinDays * 24 * 60 * 60 * 1000 : null;
-
-    const mapCriteriaStatusToContactStatus = (status: AudienceCriteria['status']): ContactStatus | null => {
-      if (status === 'OPT_IN') return ContactStatus.OPT_IN;
-      if (status === 'OPT_OUT') return ContactStatus.OPT_OUT;
-      if (status === 'UNKNOWN') return ContactStatus.UNKNOWN;
-      return null; // ALL
-    };
-
-    const out: string[] = [];
-    for (const c of allContacts) {
-      // Guard-rails de negócio (alinha com backend):
-      // - opt-out: nunca enviar
-      // - suprimidos: nunca enviar
-      if (c.status === ContactStatus.OPT_OUT) continue;
-      const normalizedPhone = normalizePhoneNumber(String((c as any)?.phone || '').trim());
-      if (normalizedPhone && suppressedPhones.has(normalizedPhone)) continue;
-
-      // UF (BR)
-      if (criteria.uf) {
-        const targetUf = String(criteria.uf).trim().toUpperCase();
-        if (targetUf) {
-          const uf = getBrazilUfFromPhone(String((c as any)?.phone || '').trim());
-          if (!uf || uf !== targetUf) continue;
-        }
-      }
-
-      // DDI (País)
-      if (criteria.ddi) {
-        const target = String(criteria.ddi).trim().replace(/^\+/, '');
-        if (target) {
-          const ddi = getCountryCallingCodeFromPhone(String((c as any)?.phone || '').trim());
-          if (!ddi || String(ddi) !== target) continue;
-        }
-      }
-
-      // status
-      if (criteria.status !== 'ALL') {
-        const desired = mapCriteriaStatusToContactStatus(criteria.status);
-        if (desired && c.status !== desired) continue;
-      }
-
-      // no tags
-      const tags = c.tags || [];
-      if (criteria.noTags) {
-        if (tags.length !== 0) continue;
-      }
-
-      // include tag
-      if (criteria.includeTag) {
-        const target = String(criteria.includeTag).trim().toLowerCase();
-        if (!target) continue;
-        const has = tags.some((t) => String(t || '').trim().toLowerCase() === target);
-        if (!has) continue;
-      }
-
-      // custom field
-      if (criteria.customFieldKey) {
-        const key = String(criteria.customFieldKey).trim();
-        if (!key) continue;
-        const cf = (c as any)?.custom_fields as Record<string, any> | undefined;
-        const raw = cf && typeof cf === 'object' ? (cf as any)[key] : undefined;
-        const isEmpty = raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '');
-
-        const mode = criteria.customFieldMode ?? 'exists';
-        if (mode === 'exists') {
-          if (isEmpty) continue;
-        } else if (mode === 'equals') {
-          if (isEmpty) continue;
-          const expected = String(criteria.customFieldValue ?? '').trim().toLowerCase();
-          if (!expected) continue;
-          const actual = String(raw).trim().toLowerCase();
-          if (actual !== expected) continue;
-        }
-      }
-
-      // created within
-      if (withinMs) {
-        const createdAt = (c as any).createdAt || (c as any).created_at;
-        if (!createdAt) continue;
-        const ts = new Date(String(createdAt)).getTime();
-        if (!Number.isFinite(ts)) continue;
-        if (now - ts > withinMs) continue;
-      }
-
-      out.push(c.id);
-    }
-    return out;
-  };
-
-  const applyAudienceCriteria = (criteria: AudienceCriteria, preset?: Exclude<AudiencePresetId, null>) => {
+  // Use pure function from business logic for criteria filtering
+  const applyAudienceCriteria = useCallback((criteria: AudienceCriteria, preset?: AudiencePresetId) => {
     setRecipientSource('specific');
     setAudiencePreset(preset ?? 'manual');
     setAudienceCriteria(criteria);
-    const ids = computeContactIdsByCriteria(criteria);
+    const ids = getContactIdsByCriteria(allContacts, criteria, suppressedPhones);
     setSelectedContactIds(ids);
-  };
+  }, [allContacts, suppressedPhones]);
 
-  const selectAudiencePreset = (preset: Exclude<AudiencePresetId, null>) => {
+  // Use pure function from business logic for preset application
+  const selectAudiencePreset = useCallback((preset: AudiencePresetId) => {
     if (preset === 'test') {
       setRecipientSource('test');
       setAudiencePreset('test');
       setSelectedContactIds([]);
-      return;
-    }
-
-    if (preset === 'all') {
-      // "Todos" no Jobs-mode = todos elegíveis (exclui OPT_OUT por segurança)
-      applyAudienceCriteria(
-        {
-          status: 'ALL',
-          includeTag: null,
-          createdWithinDays: null,
-          excludeOptOut: true,
-          noTags: false,
-          uf: null,
-          ddi: null,
-          customFieldKey: null,
-          customFieldMode: null,
-          customFieldValue: null,
-        },
-        'all'
-      );
       return;
     }
 
@@ -603,99 +376,13 @@ export const useCampaignWizardController = () => {
       return;
     }
 
-    if (preset === 'opt_in') {
-      applyAudienceCriteria(
-        {
-          status: 'OPT_IN',
-          includeTag: null,
-          createdWithinDays: null,
-          excludeOptOut: true,
-          noTags: false,
-          uf: null,
-          ddi: null,
-          customFieldKey: null,
-          customFieldMode: null,
-          customFieldValue: null,
-        },
-        'opt_in'
-      );
-      return;
-    }
-
-    if (preset === 'new_7d') {
-      applyAudienceCriteria(
-        {
-          status: 'OPT_IN',
-          includeTag: null,
-          createdWithinDays: 7,
-          excludeOptOut: true,
-          noTags: false,
-          uf: null,
-          ddi: null,
-          customFieldKey: null,
-          customFieldMode: null,
-          customFieldValue: null,
-        },
-        'new_7d'
-      );
-      return;
-    }
-
-    if (preset === 'tag_top') {
-      if (!topTag) {
-        applyAudienceCriteria(
-          {
-            status: 'OPT_IN',
-            includeTag: null,
-            createdWithinDays: null,
-            excludeOptOut: true,
-            noTags: false,
-            uf: null,
-            ddi: null,
-            customFieldKey: null,
-            customFieldMode: null,
-            customFieldValue: null,
-          },
-          'opt_in'
-        );
-        return;
-      }
-      applyAudienceCriteria(
-        {
-          status: 'OPT_IN',
-          includeTag: topTag,
-          createdWithinDays: null,
-          excludeOptOut: true,
-          noTags: false,
-          uf: null,
-          ddi: null,
-          customFieldKey: null,
-          customFieldMode: null,
-          customFieldValue: null,
-        },
-        'tag_top'
-      );
-      return;
-    }
-
-    if (preset === 'no_tags') {
-      applyAudienceCriteria(
-        {
-          status: 'OPT_IN',
-          includeTag: null,
-          createdWithinDays: null,
-          excludeOptOut: true,
-          noTags: true,
-          uf: null,
-          ddi: null,
-          customFieldKey: null,
-          customFieldMode: null,
-          customFieldValue: null,
-        },
-        'no_tags'
-      );
-    }
-  };
+    // Use applyPreset from business logic for all other presets
+    const result = applyPreset(preset, allContacts, suppressedPhones, { topTag });
+    setRecipientSource('specific');
+    setAudiencePreset(result.fallbackPreset ?? preset);
+    setAudienceCriteria(result.criteria);
+    setSelectedContactIds(result.contactIds);
+  }, [allContacts, suppressedPhones, topTag]);
 
   // Default audience (Jobs-mode): novos (7d), once contacts are available.
   useEffect(() => {
@@ -743,96 +430,18 @@ export const useCampaignWizardController = () => {
   const availableTemplates = templatesQuery.data || [];
   const selectedTemplate = availableTemplates.find(t => t.id === selectedTemplateId);
 
-  // Calculate all template variables with detailed info about where each is used
+  // Use pure function from business logic for template variable parsing
   const templateVariableInfo = useMemo(() => {
-    if (!selectedTemplate) return { body: [], header: [], buttons: [], totalExtra: 0 };
-
-    const components = selectedTemplate.components || [];
-    const result = {
-      body: [] as { index: number; key: string; placeholder: string; context: string }[],
-      header: [] as { index: number; key: string; placeholder: string; context: string }[],
-      buttons: [] as { index: number; key: string; buttonIndex: number; buttonText: string; context: string }[],
-      totalExtra: 0,
+    const info = getTemplateVariableInfo(selectedTemplate);
+    // Adapter: expose totalExtra for backward compatibility (lib uses totalCount)
+    return {
+      ...info,
+      totalExtra: info.totalCount,
     };
-
-    // Generic Regex to match {{1}} OR {{variable_name}}
-    const varRegex = /\{\{([\w\d_]+)\}\}/g;
-
-    // Helper to extract numeric index or return string key
-    const getVarId = (match: string): { isNum: boolean, val: string } => {
-      const clean = match.replace(/[{}]/g, '');
-      const num = parseInt(clean);
-      return { isNum: !isNaN(num), val: clean };
-    };
-
-    // Parse body variables (deduplicate - same variable may appear multiple times in text)
-    const bodyComponent = components.find(c => c.type === 'BODY');
-    if (bodyComponent?.text) {
-      const matches = bodyComponent.text.match(varRegex) || [];
-      const seenKeys = new Set<string>();
-      matches.forEach((match) => {
-        const { isNum, val } = getVarId(match);
-        // Skip if we've already seen this variable
-        if (seenKeys.has(val)) return;
-        seenKeys.add(val);
-
-        result.body.push({
-          index: isNum ? parseInt(val) : 0, // 0 for named
-          key: val,
-          placeholder: match,
-          context: `Variável do corpo (${match})`
-        });
-      });
-    }
-
-    // Parse header variables (deduplicate - same variable may appear multiple times)
-    const headerComponent = components.find(c => c.type === 'HEADER');
-    if (headerComponent?.format === 'TEXT' && headerComponent?.text) {
-      const matches = headerComponent.text.match(varRegex) || [];
-      const seenKeys = new Set<string>();
-      matches.forEach((match) => {
-        const { isNum, val } = getVarId(match);
-        // Skip if we've already seen this variable
-        if (seenKeys.has(val)) return;
-        seenKeys.add(val);
-
-        result.header.push({
-          index: isNum ? parseInt(val) : 0,
-          key: val,
-          placeholder: match,
-          context: `Variável do cabeçalho (${match})`
-        });
-      });
-    }
-
-    // Parse button variables (URL)
-    const buttonsComponent = components.find(c => c.type === 'BUTTONS');
-    if (buttonsComponent?.buttons) {
-      buttonsComponent.buttons.forEach((btn: any, btnIndex: number) => {
-        if (btn.type === 'URL' && btn.url) {
-          const matches = btn.url.match(varRegex) || [];
-          matches.forEach((match: string) => {
-            const { isNum, val } = getVarId(match);
-            result.buttons.push({
-              index: isNum ? parseInt(val) : 0, // Usually just 1
-              key: val,
-              buttonIndex: btnIndex,
-              buttonText: btn.text || `Botão ${btnIndex + 1}`,
-              context: `Variável da URL (${match})`
-            });
-          });
-        }
-      });
-    }
-
-    // Calculate total extra variables (not used for limits logic directly locally but good for UI)
-    result.totalExtra = result.body.length + result.header.length + result.buttons.length;
-
-    return result;
   }, [selectedTemplate]);
 
   // For backward compatibility - count of extra variables
-  const templateVariableCount = templateVariableInfo.totalExtra;
+  const templateVariableCount = templateVariableInfo.totalCount;
 
   // AUTO-MAPPING & Reset
   // Strategy: Only auto-fill when Meta variable name EXACTLY matches our system fields
