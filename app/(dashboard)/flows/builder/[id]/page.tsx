@@ -553,6 +553,27 @@ export default function FlowBuilderEditorPage({
                         const flowJsonToSave =
                           dynamicFlowJsonRef.current || formPreviewJson || (flow as any)?.flow_json
                         // #region agent log
+                        fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'endpoint-health',hypothesisId:'H1',location:'app/(dashboard)/flows/builder/[id]/page.tsx:551',message:'publish preflight start',data:{flowId:id},timestamp:Date.now()})}).catch(()=>{});
+                        // #endregion agent log
+                        try {
+                          const keysRes = await fetch('/api/flows/endpoint/keys', { cache: 'no-store' })
+                          const keysData = await keysRes.json().catch(() => ({}))
+                          const endpointUrl = typeof keysData?.endpointUrl === 'string' ? keysData.endpointUrl : null
+                          // #region agent log
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'endpoint-health',hypothesisId:'H2',location:'app/(dashboard)/flows/builder/[id]/page.tsx:558',message:'endpoint keys status',data:{flowId:id,keysOk:keysRes.ok,endpointUrl},timestamp:Date.now()})}).catch(()=>{});
+                          // #endregion agent log
+                          if (endpointUrl) {
+                            const endpointRes = await fetch(endpointUrl, { method: 'GET', cache: 'no-store' })
+                            // #region agent log
+                            fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'endpoint-health',hypothesisId:'H3',location:'app/(dashboard)/flows/builder/[id]/page.tsx:563',message:'endpoint GET check',data:{flowId:id,endpointUrl,status:endpointRes.status,ok:endpointRes.ok},timestamp:Date.now()})}).catch(()=>{});
+                            // #endregion agent log
+                          }
+                        } catch (error) {
+                          // #region agent log
+                          fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'endpoint-health',hypothesisId:'H4',location:'app/(dashboard)/flows/builder/[id]/page.tsx:569',message:'endpoint preflight error',data:{flowId:id,errorMessage:error instanceof Error ? error.message : 'unknown'},timestamp:Date.now()})}).catch(()=>{});
+                          // #endregion agent log
+                        }
+                        // #region agent log
                         fetch('http://127.0.0.1:7243/ingest/1294d6ce-76f2-430d-96ab-3ae4d7527327',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'debug-session',runId:'post-fix',hypothesisId:'H4',location:'app/(dashboard)/flows/builder/[id]/page.tsx:543',message:'publish flow json selection',data:{flowId:id,hasDynamicOverride:Boolean(dynamicFlowJsonRef.current),flowJsonVersion:(flowJsonToSave as any)?.version ?? null,flowJsonDataApiVersion:(flowJsonToSave as any)?.data_api_version ?? null},timestamp:Date.now()})}).catch(()=>{});
                         // #endregion agent log
 
