@@ -1,10 +1,13 @@
 /**
- * Support Agent V2 - Simple Two-Step Approach
+ * Support Agent V2 - RAG com pgvector
  *
- * Step 1: If has knowledge base, use file_search to get context
- * Step 2: Use respond tool to generate structured response
+ * Usa RAG próprio com Supabase pgvector em vez do Google File Search.
+ * Isso permite usar `messages[]` normalmente (o File Search só funcionava com `prompt` string).
  *
- * File Search CANNOT be combined with other tools - that's why we need two steps.
+ * Fluxo:
+ * 1. Se tem knowledge base, busca contexto relevante via pgvector
+ * 2. Injeta contexto no system prompt
+ * 3. Usa generateText com messages[] + respond tool
  */
 
 import { z } from 'zod'
@@ -94,43 +97,6 @@ function convertToAIMessages(
     }))
 }
 
-/**
- * Format conversation history as text for inclusion in prompt
- * This is needed because File Search works better with `prompt` (string)
- * but we need to maintain conversation context
- */
-function formatConversationHistory(messages: InboxMessage[]): string {
-  const filtered = messages
-    .filter((m) => m.message_type !== 'internal_note')
-    .slice(-10) // Last 10 messages for context
-
-  if (filtered.length <= 1) {
-    return '' // No history needed if only 1 message
-  }
-
-  // All messages except the last one (which will be the current prompt)
-  const history = filtered.slice(0, -1)
-
-  if (history.length === 0) {
-    return ''
-  }
-
-  const formattedHistory = history
-    .map((m) => {
-      const role = m.direction === 'inbound' ? 'Cliente' : 'Assistente'
-      return `${role}: ${m.content}`
-    })
-    .join('\n')
-
-  // Format to make it clear this is context from the current conversation
-  // This helps the model understand it should use this for personalization
-  return `---
-HISTÓRICO DA CONVERSA ATUAL (use para contexto e personalização):
-${formattedHistory}
----
-
-Pergunta atual do cliente:`
-}
 
 async function persistAILog(data: {
   conversationId: string
@@ -196,6 +162,12 @@ export async function processSupportAgentV2(
   const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
   const { generateText, tool } = await import('ai')
   const { withDevTools } = await import('@/lib/ai/devtools')
+  const {
+    findRelevantContent,
+    hasIndexedContent,
+    buildEmbeddingConfigFromAgent,
+    buildRerankConfigFromAgent,
+  } = await import('@/lib/ai/rag-store')
 
   // Get API key from database only (never use env vars for multi-tenant SaaS)
   const supabase = getSupabaseAdmin()
@@ -228,103 +200,112 @@ export async function processSupportAgentV2(
   const messageIds = messages.map((m) => m.id)
   const aiMessages = convertToAIMessages(messages.slice(-10))
 
-  // Build prompt with conversation history for File Search
-  const conversationHistory = formatConversationHistory(messages)
-  const promptWithHistory = conversationHistory
-    ? `${conversationHistory} ${inputText}`
-    : inputText
-
   const google = createGoogleGenerativeAI({ apiKey })
   const modelId = agent.model || DEFAULT_MODEL_ID
   const baseModel = google(modelId)
   const model = await withDevTools(baseModel, { name: `agente:${agent.name}` })
 
-  const hasKnowledgeBase = !!agent.file_search_store_id
+  // Check if agent has indexed content in pgvector
+  const hasKnowledgeBase = await hasIndexedContent(agent.id)
 
   console.log(`[support-agent] Processing: model=${modelId}, hasKnowledgeBase=${hasKnowledgeBase}`)
   console.log(`[support-agent] Total messages received: ${messages.length}`)
   console.log(`[support-agent] Last user message: "${inputText.slice(0, 100)}..."`)
-  console.log(`[support-agent] Conversation history length: ${conversationHistory.length} chars`)
-  if (conversationHistory) {
-    console.log(`[support-agent] History preview: "${conversationHistory.slice(0, 200)}..."`)
-  }
 
   let response: SupportResponse | undefined
   let error: string | null = null
+  let sources: Array<{ title: string; content: string }> | undefined
 
   try {
-    if (hasKnowledgeBase && agent.file_search_store_id) {
-      // =======================================================================
-      // WITH KNOWLEDGE BASE: Use file_search (returns plain text)
-      // =======================================================================
-      console.log(`[support-agent] Using File Search with store: ${agent.file_search_store_id}`)
+    // Build system prompt - inject RAG context if available
+    let systemPrompt = agent.system_prompt
 
-      const fileSearchStartTime = Date.now()
-      console.log(`[support-agent] Full prompt being sent: "${promptWithHistory.slice(0, 500)}${promptWithHistory.length > 500 ? '...' : ''}"`)
-      console.log(`[support-agent] Starting File Search at ${new Date().toISOString()}`)
+    if (hasKnowledgeBase) {
+      // =======================================================================
+      // WITH KNOWLEDGE BASE: Search pgvector for relevant context
+      // =======================================================================
+      console.log(`[support-agent] Searching knowledge base for: "${inputText.slice(0, 100)}..."`)
 
-      // File Search works better with prompt (string) instead of messages (array)
-      // We include conversation history in the prompt to maintain context
-      const result = await generateText({
-        model,
-        system: agent.system_prompt,
-        prompt: promptWithHistory, // Include conversation history + current message
-        tools: {
-          file_search: google.tools.fileSearch({
-            fileSearchStoreNames: [agent.file_search_store_id],
-            topK: 5,
-          }),
-        },
-        temperature: DEFAULT_TEMPERATURE,
-        maxOutputTokens: DEFAULT_MAX_TOKENS,
-        // TEMP: Removido AbortSignal para debug - endpoint de teste não usa e funciona
+      const ragStartTime = Date.now()
+
+      // Build embedding config from agent settings
+      const embeddingConfig = buildEmbeddingConfigFromAgent(agent, apiKey)
+
+      // Build rerank config if enabled
+      const rerankConfig = await buildRerankConfigFromAgent(agent)
+
+      // Search for relevant content
+      const relevantContent = await findRelevantContent({
+        agentId: agent.id,
+        query: inputText,
+        embeddingConfig,
+        rerankConfig,
+        topK: agent.rag_max_results || 5,
+        threshold: agent.rag_similarity_threshold || 0.5,
       })
 
-      console.log(`[support-agent] File Search completed in ${Date.now() - fileSearchStartTime}ms`)
+      console.log(`[support-agent] RAG search completed in ${Date.now() - ragStartTime}ms`)
+      console.log(`[support-agent] Found ${relevantContent.length} relevant chunks`)
 
-      console.log(`[support-agent] Gemini API responded, text length: ${result.text?.length ?? 0}`)
+      if (relevantContent.length > 0) {
+        // Inject context into system prompt
+        const contextText = relevantContent
+          .map((r, i) => `[Fonte ${i + 1}]: ${r.content}`)
+          .join('\n\n')
 
-      // Create structured response from plain text
-      response = {
-        message: result.text || 'Desculpe, não consegui gerar uma resposta.',
-        sentiment: 'neutral',
-        confidence: 0.8,
-        shouldHandoff: false,
+        systemPrompt = `${agent.system_prompt}
+
+---
+CONTEXTO DA BASE DE CONHECIMENTO (use estas informações para responder):
+${contextText}
+---
+
+IMPORTANTE: Se a pergunta do usuário puder ser respondida usando o contexto acima, use-o. Se não encontrar a informação no contexto, responda com base no seu conhecimento geral, mas indique quando não tiver certeza.`
+
+        // Track sources for logging
+        sources = relevantContent.map((r, i) => ({
+          title: `Fonte ${i + 1}`,
+          content: r.content.slice(0, 200) + '...',
+        }))
+
+        console.log(`[support-agent] Injected ${relevantContent.length} sources into system prompt`)
+      } else {
+        console.log(`[support-agent] No relevant content found, using base system prompt`)
       }
-
-      console.log(`[support-agent] File Search response: ${response.message.slice(0, 100)}...`)
-
-    } else {
-      // =======================================================================
-      // WITHOUT KNOWLEDGE BASE: Use respond tool for structured output
-      // =======================================================================
-      console.log(`[support-agent] Using respond tool (no knowledge base)`)
-
-      const respondTool = tool({
-        description: 'Envia uma resposta estruturada ao usuário.',
-        inputSchema: supportResponseSchema,
-        execute: async (params) => {
-          response = params
-          return params
-        },
-      })
-
-      await generateText({
-        model,
-        system: agent.system_prompt,
-        messages: aiMessages,
-        tools: { respond: respondTool },
-        toolChoice: 'required',
-        temperature: DEFAULT_TEMPERATURE,
-        maxOutputTokens: DEFAULT_MAX_TOKENS,
-      })
-
-      if (!response) {
-        throw new Error('No response generated')
-      }
-
-      console.log(`[support-agent] Respond tool response: ${response.message.slice(0, 100)}...`)
     }
+
+    // =======================================================================
+    // GENERATE RESPONSE: Always use messages[] with respond tool
+    // =======================================================================
+    console.log(`[support-agent] Generating response with respond tool`)
+
+    const respondTool = tool({
+      description: 'Envia uma resposta estruturada ao usuário.',
+      inputSchema: supportResponseSchema,
+      execute: async (params) => {
+        response = {
+          ...params,
+          sources: sources || params.sources,
+        }
+        return params
+      },
+    })
+
+    await generateText({
+      model,
+      system: systemPrompt,
+      messages: aiMessages,
+      tools: { respond: respondTool },
+      toolChoice: 'required',
+      temperature: agent.temperature ?? DEFAULT_TEMPERATURE,
+      maxOutputTokens: agent.max_tokens ?? DEFAULT_MAX_TOKENS,
+    })
+
+    if (!response) {
+      throw new Error('No response generated')
+    }
+
+    console.log(`[support-agent] Response generated: "${response.message.slice(0, 100)}..."`)
 
   } catch (err) {
     error = err instanceof Error ? err.message : 'Unknown error'

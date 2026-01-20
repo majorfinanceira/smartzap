@@ -1,24 +1,24 @@
 /**
- * T057: Knowledge Base API
+ * Knowledge Base API
  * Manage knowledge base files for AI agents
- * Integrates with Google File Search Store for RAG
+ * Uses pgvector for RAG (Retrieval Augmented Generation)
  *
  * Flow:
- * 1. Upload file → File Search Store (auto-indexed for semantic search)
- * 2. Store metadata in database
- * 3. Test endpoint uses google.tools.fileSearch() to query indexed docs
+ * 1. Upload file → OCR if needed → Chunk → Embed → Store in pgvector
+ * 2. Store metadata in database (ai_knowledge_files)
+ * 3. Agent queries use pgvector similarity search
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { z } from 'zod'
-import {
-  ensureFileSearchStore,
-  uploadToFileSearchStore,
-  waitForOperation,
-  deleteFileFromStore,
-} from '@/lib/ai/file-search-store'
 import { processDocumentOCR } from '@/lib/ai/ocr'
+import {
+  indexDocument,
+  deleteFileEmbeddings,
+  buildEmbeddingConfigFromAgent,
+} from '@/lib/ai/rag-store'
+import type { AIAgent } from '@/types'
 
 // Helper to get admin client with null check
 function getClient() {
@@ -116,10 +116,10 @@ export async function POST(request: NextRequest) {
 
     const { agent_id, name, content, mime_type } = parsed.data
 
-    // Validate agent exists and get file_search_store_id
+    // Validate agent exists and get RAG config
     const { data: agent, error: agentError } = await supabase
       .from('ai_agents')
-      .select('id, name, file_search_store_id')
+      .select('*')
       .eq('id', agent_id)
       .single()
 
@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Get Gemini API key for file upload
+    // Get Gemini API key for embeddings
     const { data: geminiSetting } = await supabase
       .from('settings')
       .select('value')
@@ -146,94 +146,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Ensure File Search Store exists for this agent
-    let fileSearchStoreName = agent.file_search_store_id
-
-    try {
-      fileSearchStoreName = await ensureFileSearchStore(
-        apiKey,
-        agent_id,
-        agent.name,
-        agent.file_search_store_id
-      )
-
-      // Update agent with store ID if it changed
-      if (fileSearchStoreName !== agent.file_search_store_id) {
-        await supabase
-          .from('ai_agents')
-          .update({ file_search_store_id: fileSearchStoreName })
-          .eq('id', agent_id)
-
-        console.log(`[knowledge] Updated agent ${agent_id} with store ${fileSearchStoreName}`)
-      }
-    } catch (storeError) {
-      console.error('[knowledge] Failed to ensure File Search Store:', storeError)
-      // Continue with local-only storage if store creation fails
-      fileSearchStoreName = null
-    }
-
-    // Upload file to File Search Store (for RAG semantic search)
-    let fileSearchFileName: string | null = null
-    let indexingStatus: 'completed' | 'processing' | 'failed' | 'local_only' = 'local_only'
-
-    if (fileSearchStoreName) {
-      try {
-        // Process with OCR if needed (PDFs, images, Office docs → Markdown)
-        const {
-          content: processedContent,
-          mimeType: processedMimeType,
-          ocrResult,
-        } = await processDocumentOCR(content, mime_type, name)
-
-        if (ocrResult) {
-          console.log(
-            `[knowledge] OCR by ${ocrResult.provider}${ocrResult.model ? ` (${ocrResult.model})` : ''}: ${ocrResult.pagesProcessed ?? '?'} pages, ${processedContent.length} chars`
-          )
-        }
-
-        console.log(`[knowledge] Uploading ${name} to File Search Store ${fileSearchStoreName}`)
-
-        const operation = await uploadToFileSearchStore(
-          apiKey,
-          fileSearchStoreName,
-          processedContent,
-          name,
-          processedMimeType
-        )
-
-        console.log(`[knowledge] Upload operation started: ${operation.name}`)
-
-        // Wait for the upload/indexing to complete
-        if (!operation.done && operation.name) {
-          const completedOp = await waitForOperation(apiKey, operation.name, 30, 2000)
-          console.log(`[knowledge] File indexed successfully`)
-          indexingStatus = 'completed'
-
-          // Extract the file name from the operation metadata if available
-          // Format: fileSearchStores/{storeId}/files/{fileId}
-          if (completedOp.metadata && typeof completedOp.metadata === 'object') {
-            fileSearchFileName = (completedOp.metadata as { name?: string }).name || null
-          }
-        } else if (operation.done) {
-          indexingStatus = 'completed'
-        }
-      } catch (uploadError) {
-        console.error('[knowledge] File Search Store upload error:', uploadError)
-        indexingStatus = 'failed'
-        // Continue - we'll save locally and can retry later
-      }
-    }
-
     // Sanitize content for PostgreSQL (remove null bytes)
-    // Note: We don't need to store full binary content anymore since
-    // File Search Store handles indexing, but we keep it for:
-    // - Fallback when store is unavailable
-    // - Display preview in UI
-    // - Text files that need local processing
     const sanitizedContent = sanitizeContent(content)
 
-    // Save file metadata to database
-    const { data: file, error } = await supabase
+    // Create file record first (with processing status)
+    const { data: file, error: insertError } = await supabase
       .from('ai_knowledge_files')
       .insert({
         agent_id,
@@ -241,25 +158,90 @@ export async function POST(request: NextRequest) {
         mime_type,
         size_bytes: new TextEncoder().encode(sanitizedContent).length,
         content: sanitizedContent,
-        external_file_id: fileSearchFileName, // Now stores the File Search file name
-        external_file_uri: fileSearchStoreName, // Store the store name for reference
-        indexing_status: indexingStatus,
+        indexing_status: 'processing',
+        chunks_count: 0,
       })
       .select()
       .single()
 
-    if (error) {
-      console.error('[knowledge] Error saving file:', error)
+    if (insertError || !file) {
+      console.error('[knowledge] Error creating file:', insertError)
       return NextResponse.json(
-        { error: 'Erro ao salvar arquivo' },
+        { error: 'Erro ao criar arquivo' },
         { status: 500 }
       )
     }
 
+    // Index file in pgvector (async but we wait for it)
+    let indexingStatus: 'completed' | 'failed' = 'failed'
+    let chunksCount = 0
+
+    try {
+      // Process with OCR if needed (PDFs, images, Office docs → Markdown)
+      const {
+        content: processedContent,
+        ocrResult,
+      } = await processDocumentOCR(sanitizedContent, mime_type, name)
+
+      if (ocrResult) {
+        console.log(
+          `[knowledge] OCR by ${ocrResult.provider}${ocrResult.model ? ` (${ocrResult.model})` : ''}: ${ocrResult.pagesProcessed ?? '?'} pages, ${processedContent.length} chars`
+        )
+      }
+
+      console.log(`[knowledge] Indexing ${name} in pgvector for agent ${agent_id}`)
+
+      // Build embedding config from agent settings
+      const embeddingConfig = buildEmbeddingConfigFromAgent(agent as AIAgent, apiKey)
+
+      // Index document (chunk → embed → store)
+      const result = await indexDocument({
+        agentId: agent_id,
+        fileId: file.id,
+        content: processedContent,
+        embeddingConfig,
+        metadata: {
+          filename: name,
+          mimeType: mime_type,
+        },
+      })
+
+      if (result.success) {
+        indexingStatus = 'completed'
+        chunksCount = result.chunksIndexed
+        console.log(`[knowledge] Indexed ${chunksCount} chunks for ${name}`)
+      } else {
+        console.error(`[knowledge] Indexing failed: ${result.error}`)
+      }
+    } catch (indexError) {
+      console.error('[knowledge] Indexing error:', indexError)
+      // Continue - file is saved, just not indexed
+    }
+
+    // Update file with indexing status
+    const { error: updateError } = await supabase
+      .from('ai_knowledge_files')
+      .update({
+        indexing_status: indexingStatus,
+        chunks_count: chunksCount,
+      })
+      .eq('id', file.id)
+
+    if (updateError) {
+      console.error('[knowledge] Error updating file status:', updateError)
+    }
+
+    // Return updated file data
+    const { data: updatedFile } = await supabase
+      .from('ai_knowledge_files')
+      .select('*')
+      .eq('id', file.id)
+      .single()
+
     return NextResponse.json({
-      file,
-      file_search_store: fileSearchStoreName,
+      file: updatedFile || file,
       indexing_status: indexingStatus,
+      chunks_indexed: chunksCount,
     }, { status: 201 })
   } catch (error) {
     console.error('[knowledge] POST Error:', error)
@@ -284,7 +266,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Get file to check for external file
+    // Get file to verify it exists
     const { data: file, error: fileError } = await supabase
       .from('ai_knowledge_files')
       .select('*')
@@ -298,30 +280,16 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
-    // Try to delete from File Search Store if external file exists
-    if (file.external_file_id) {
-      try {
-        const { data: geminiSetting } = await supabase
-          .from('settings')
-          .select('value')
-          .eq('key', 'gemini_api_key')
-          .maybeSingle()
-
-        const apiKey = geminiSetting?.value || process.env.GEMINI_API_KEY
-
-        if (apiKey) {
-          // external_file_id now contains the File Search file name
-          // Format: fileSearchStores/{storeId}/files/{fileId}
-          await deleteFileFromStore(apiKey, file.external_file_id)
-          console.log(`[knowledge] Deleted file from File Search Store: ${file.external_file_id}`)
-        }
-      } catch (deleteError) {
-        console.error('[knowledge] Error deleting from File Search Store:', deleteError)
-        // Continue with local deletion even if external fails
-      }
+    // Delete embeddings from pgvector
+    try {
+      await deleteFileEmbeddings(fileId)
+      console.log(`[knowledge] Deleted embeddings for file ${fileId}`)
+    } catch (deleteError) {
+      console.error('[knowledge] Error deleting embeddings:', deleteError)
+      // Continue with file deletion even if embeddings deletion fails
     }
 
-    // Delete from database
+    // Delete from database (this will cascade delete embeddings due to FK)
     const { error } = await supabase
       .from('ai_knowledge_files')
       .delete()
