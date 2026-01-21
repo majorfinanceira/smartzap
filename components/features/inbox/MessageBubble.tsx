@@ -38,11 +38,11 @@ function DeliveryStatusIcon({ status }: { status: DeliveryStatus }) {
   const base = 'h-2.5 w-2.5'
   switch (status) {
     case 'pending':
-      return <Clock className={cn(base, 'text-zinc-500')} />
+      return <Clock className={cn(base, 'text-[var(--ds-text-muted)]')} />
     case 'sent':
-      return <Check className={cn(base, 'text-zinc-500')} />
+      return <Check className={cn(base, 'text-[var(--ds-text-muted)]')} />
     case 'delivered':
-      return <CheckCheck className={cn(base, 'text-zinc-500')} />
+      return <CheckCheck className={cn(base, 'text-[var(--ds-text-muted)]')} />
     case 'read':
       return <CheckCheck className={cn(base, 'text-blue-400')} />
     case 'failed':
@@ -56,7 +56,7 @@ function DeliveryStatusIcon({ status }: { status: DeliveryStatus }) {
 function SentimentIndicator({ sentiment }: { sentiment: Sentiment }) {
   const colors: Record<Sentiment, string> = {
     positive: 'bg-emerald-500/60',
-    neutral: 'bg-zinc-500/60',
+    neutral: 'bg-[var(--ds-text-muted)]/60',
     negative: 'bg-amber-500/60',
     frustrated: 'bg-red-500/60',
   }
@@ -129,28 +129,28 @@ export const MessageBubble = memo(function MessageBubble({
     return (
       <div className="flex justify-center my-3 animate-in fade-in duration-150">
         <div className={cn(
-          'bg-zinc-800/50 border border-zinc-700/50',
+          'bg-[var(--ds-bg-surface)]/50 border border-[var(--ds-border-subtle)]',
           hasDetails ? 'px-4 py-3 rounded-xl max-w-md' : 'px-4 py-2 rounded-full'
         )}>
           {/* Header */}
           <div className="flex items-center gap-2">
             <ArrowRightLeft className="h-3.5 w-3.5 text-amber-500/70" />
-            <span className="text-xs font-medium text-zinc-300">{handoffData.title}</span>
-            <span className="text-[10px] text-zinc-600">·</span>
-            <span className="text-[10px] text-zinc-500">{time}</span>
+            <span className="text-xs font-medium text-[var(--ds-text-secondary)]">{handoffData.title}</span>
+            <span className="text-[10px] text-[var(--ds-text-muted)]">·</span>
+            <span className="text-[10px] text-[var(--ds-text-muted)]">{time}</span>
           </div>
 
           {/* Details (if available) */}
           {hasDetails && (
-            <div className="mt-2 pt-2 border-t border-zinc-700/50 space-y-1">
+            <div className="mt-2 pt-2 border-t border-[var(--ds-border-subtle)] space-y-1">
               {handoffData.reason && (
-                <p className="text-xs text-zinc-400">
-                  <span className="text-zinc-500">Motivo:</span> {handoffData.reason}
+                <p className="text-xs text-[var(--ds-text-secondary)]">
+                  <span className="text-[var(--ds-text-muted)]">Motivo:</span> {handoffData.reason}
                 </p>
               )}
               {handoffData.summary && (
-                <p className="text-xs text-zinc-400">
-                  <span className="text-zinc-500">Resumo:</span> {handoffData.summary}
+                <p className="text-xs text-[var(--ds-text-secondary)]">
+                  <span className="text-[var(--ds-text-muted)]">Resumo:</span> {handoffData.summary}
                 </p>
               )}
             </div>
@@ -195,8 +195,8 @@ export const MessageBubble = memo(function MessageBubble({
           className={cn(
             'relative px-3.5 py-2',
             getBorderRadius(),
-            // Inbound (cliente): cinza escuro sutil
-            isInbound && 'bg-zinc-800/70 text-zinc-200',
+            // Inbound (cliente): themed surface color
+            isInbound && 'bg-[var(--ds-bg-surface)]/80 text-[var(--ds-text-primary)]',
             // Outbound humano: verde desaturado, elegante
             !isInbound && !isAIResponse && 'bg-emerald-600/80 text-white',
             // AI Response: verde mais escuro para diferenciar
@@ -212,13 +212,13 @@ export const MessageBubble = memo(function MessageBubble({
           {isAIResponse && ai_sources && ai_sources.length > 0 && isLastInGroup && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-zinc-400 hover:text-zinc-300 transition-colors">
+                <button className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-emerald-200/70 hover:text-emerald-100 transition-colors">
                   <Sparkles className="h-2.5 w-2.5" />
                   <span>{ai_sources.length} fontes</span>
                 </button>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-xs">
-                <ul className="text-xs space-y-0.5 text-zinc-400">
+                <ul className="text-xs space-y-0.5 text-[var(--ds-text-secondary)]">
                   {ai_sources.map((source, i) => (
                     <li key={i} className="truncate">• {source.title}</li>
                   ))}
@@ -239,7 +239,7 @@ export const MessageBubble = memo(function MessageBubble({
               <SentimentIndicator sentiment={ai_sentiment as Sentiment} />
             )}
 
-            <span className="text-[10px] text-zinc-500">{time}</span>
+            <span className="text-[10px] text-[var(--ds-text-muted)]">{time}</span>
 
             {/* Delivery status */}
             {!isInbound && delivery_status && (

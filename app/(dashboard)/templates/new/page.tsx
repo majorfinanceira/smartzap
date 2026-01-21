@@ -300,6 +300,9 @@ export default function NewTemplateProjectPage() {
                     buttons: t.buttons,
                     language: t.language || language,
                     category: t.category, // Pass the category (MARKETING/UTILITY)
+                    // Inclui variáveis BYPASS para submissão à Meta
+                    sample_variables: t.sample_variables,
+                    marketing_variables: t.marketing_variables,
                     meta_status: undefined // Start as Draft
                 }))
             });

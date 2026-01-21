@@ -674,7 +674,7 @@ export function DashboardShell({
                         isSidebarExpanded && "lg:pl-56"
                     )}>
                         {/* Compact mobile header - only menu button */}
-                        <header className="lg:hidden h-12 flex items-center px-4 border-b border-zinc-800/50 bg-zinc-950 shrink-0">
+                        <header className="lg:hidden h-12 flex items-center px-4 border-b border-[var(--ds-border-subtle)] bg-[var(--ds-bg-elevated)] shrink-0">
                             <button
                                 className="p-2 text-[var(--ds-text-secondary)] -ml-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 focus-visible:outline-offset-2 rounded-md"
                                 onClick={() => {
@@ -685,7 +685,7 @@ export function DashboardShell({
                             >
                                 <Menu size={20} aria-hidden="true" />
                             </button>
-                            <span className="ml-2 text-sm font-medium text-zinc-300">Inbox</span>
+                            <span className="ml-2 text-sm font-medium text-[var(--ds-text-secondary)]">Inbox</span>
                         </header>
                         <PageContentShell>
                             {children}

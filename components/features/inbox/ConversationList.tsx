@@ -81,24 +81,24 @@ export function ConversationList({
   }
 
   return (
-    <div className="flex flex-col h-full bg-zinc-900">
+    <div className="flex flex-col h-full bg-[var(--ds-bg-elevated)]">
       {/* Compact header - search integrated with filters */}
       <div className="px-3 py-2.5">
         {/* Search bar with integrated filter button */}
         <div className="relative flex items-center gap-1.5">
           <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-500" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[var(--ds-text-muted)]" />
             <Input
               type="text"
               placeholder="Buscar..."
               value={search}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-8 pr-8 h-8 text-xs bg-zinc-800/60 border-0 rounded-lg placeholder:text-zinc-500 focus:ring-1 focus:ring-zinc-700"
+              className="pl-8 pr-8 h-8 text-xs bg-[var(--ds-bg-surface)]/60 border-0 rounded-lg placeholder:text-[var(--ds-text-muted)] focus:ring-1 focus:ring-[var(--ds-border-strong)]"
             />
             {search && (
               <button
                 onClick={() => onSearchChange('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -116,7 +116,7 @@ export function ConversationList({
                   'h-8 w-8 flex items-center justify-center rounded-lg transition-colors',
                   activeFilterCount > 0
                     ? 'bg-emerald-500/10 text-emerald-400'
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
+                    : 'text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-surface)]/60'
                 )}
               >
                 <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -128,7 +128,7 @@ export function ConversationList({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuLabel className="text-[10px] text-zinc-500 uppercase tracking-wide">Status</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[10px] text-[var(--ds-text-muted)] uppercase tracking-wide">Status</DropdownMenuLabel>
               <DropdownMenuCheckboxItem
                 checked={statusFilter === null}
                 onCheckedChange={() => onStatusFilterChange(null)}
@@ -152,7 +152,7 @@ export function ConversationList({
               </DropdownMenuCheckboxItem>
 
               <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[10px] text-zinc-500 uppercase tracking-wide">Modo</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[10px] text-[var(--ds-text-muted)] uppercase tracking-wide">Modo</DropdownMenuLabel>
               <DropdownMenuCheckboxItem
                 checked={modeFilter === null}
                 onCheckedChange={() => onModeFilterChange(null)}
@@ -180,7 +180,7 @@ export function ConversationList({
               {labels.length > 0 && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[10px] text-zinc-500 uppercase tracking-wide">Etiquetas</DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-[10px] text-[var(--ds-text-muted)] uppercase tracking-wide">Etiquetas</DropdownMenuLabel>
                   <DropdownMenuCheckboxItem
                     checked={labelFilter === null}
                     onCheckedChange={() => onLabelFilterChange(null)}
@@ -210,7 +210,7 @@ export function ConversationList({
                   <DropdownMenuSeparator />
                   <button
                     onClick={clearFilters}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded transition-colors"
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] rounded transition-colors"
                   >
                     <X className="h-3 w-3" />
                     Limpar filtros
@@ -225,7 +225,7 @@ export function ConversationList({
         {totalUnread > 0 && (
           <div className="flex items-center gap-1.5 mt-2 px-0.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] text-zinc-500">
+            <span className="text-[10px] text-[var(--ds-text-muted)]">
               {totalUnread} {totalUnread === 1 ? 'não lida' : 'não lidas'}
             </span>
           </div>
@@ -239,10 +239,10 @@ export function ConversationList({
           <div className="px-2 py-1 space-y-0.5">
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="flex items-center gap-2.5 p-2.5 animate-pulse">
-                <div className="h-9 w-9 rounded-full bg-zinc-800" />
+                <div className="h-9 w-9 rounded-full bg-[var(--ds-bg-surface)]" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-3/4 bg-zinc-800 rounded" />
-                  <div className="h-2.5 w-1/2 bg-zinc-800/60 rounded" />
+                  <div className="h-3.5 w-3/4 bg-[var(--ds-bg-surface)] rounded" />
+                  <div className="h-2.5 w-1/2 bg-[var(--ds-bg-surface)]/60 rounded" />
                 </div>
               </div>
             ))}
@@ -250,10 +250,10 @@ export function ConversationList({
         ) : conversations.length === 0 ? (
           // Empty state - minimal
           <div className="flex flex-col items-center justify-center h-48 text-center px-6">
-            <div className="w-10 h-10 rounded-full bg-zinc-800/50 flex items-center justify-center mb-2.5">
-              <Inbox className="h-5 w-5 text-zinc-600" />
+            <div className="w-10 h-10 rounded-full bg-[var(--ds-bg-surface)]/50 flex items-center justify-center mb-2.5">
+              <Inbox className="h-5 w-5 text-[var(--ds-text-muted)]" />
             </div>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-[var(--ds-text-muted)]">
               {search || activeFilterCount > 0
                 ? 'Nenhuma conversa'
                 : 'Inbox vazia'}

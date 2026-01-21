@@ -172,18 +172,18 @@ export function ConversationHeader({
     conversationLabels?.some((l) => l.id === labelId) ?? false
 
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/50 bg-zinc-950">
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ds-border-subtle)] bg-[var(--ds-bg-elevated)]">
       {/* Contact info - compact */}
       <div className="flex items-center gap-2.5">
         {/* Simple avatar */}
-        <div className="h-8 w-8 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
-          <span className="text-[11px] font-medium text-zinc-400">{initials}</span>
+        <div className="h-8 w-8 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center shrink-0">
+          <span className="text-[11px] font-medium text-[var(--ds-text-secondary)]">{initials}</span>
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-[13px] font-medium text-zinc-200 truncate">{displayName}</h3>
+            <h3 className="text-[13px] font-medium text-[var(--ds-text-primary)] truncate">{displayName}</h3>
             {!isOpen && (
-              <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded">
+              <span className="text-[9px] text-[var(--ds-text-muted)] bg-[var(--ds-bg-surface)] px-1.5 py-0.5 rounded">
                 fechada
               </span>
             )}
@@ -215,7 +215,7 @@ export function ConversationHeader({
               </Tooltip>
             )}
           </div>
-          <span className="text-[10px] text-zinc-500">{phone}</span>
+          <span className="text-[10px] text-[var(--ds-text-muted)]">{phone}</span>
         </div>
       </div>
 
@@ -256,7 +256,7 @@ export function ConversationHeader({
         {/* More actions menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="h-7 w-7 flex items-center justify-center text-zinc-500 hover:text-zinc-300 rounded-lg hover:bg-zinc-800/50 transition-colors">
+            <button className="h-7 w-7 flex items-center justify-center text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors">
               <MoreVertical className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>

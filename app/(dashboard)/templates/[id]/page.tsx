@@ -102,6 +102,17 @@ export default function TemplateProjectDetailsPage() {
 
             for (const item of itemsToSubmit) {
                 try {
+                    // Converte sample_variables (Record<string, string>) para array ordenado
+                    // Ex: {"1": "Maria", "2": "Pedido"} -> ["Maria", "Pedido"]
+                    let exampleVariables: string[] = [];
+                    if (item.sample_variables && typeof item.sample_variables === 'object') {
+                        const sampleVars = item.sample_variables;
+                        const keys = Object.keys(sampleVars)
+                            .filter(k => /^\d+$/.test(k))
+                            .sort((a, b) => Number(a) - Number(b));
+                        exampleVariables = keys.map(k => sampleVars[k]);
+                    }
+
                     const payload = {
                         itemId: item.id, // ID for server-side DB update
                         projectId: id,
@@ -113,7 +124,7 @@ export default function TemplateProjectDetailsPage() {
                         footer: item.footer,
                         buttons: item.buttons,
                         // Inclui variáveis de exemplo do item (necessário para Meta API)
-                        exampleVariables: item.sample_variables || []
+                        exampleVariables
                     };
 
                     const response = await fetch('/api/templates/create', {

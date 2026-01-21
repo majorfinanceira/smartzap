@@ -516,6 +516,9 @@ export interface TemplateProjectItem {
   buttons?: any;
   category?: string;
   language: string;
+  // Variáveis para estratégia BYPASS
+  sample_variables?: Record<string, string>;  // Valores comportados para enviar à Meta
+  marketing_variables?: Record<string, string>;  // Valores promocionais para envio real
   created_at: string;
   updated_at: string;
 }

@@ -184,6 +184,18 @@ const DEFAULT_MODEL_ID = 'gemini-3-flash-preview'
 const DEFAULT_TEMPERATURE = 0.7
 const DEFAULT_MAX_TOKENS = 2048
 
+// Instruções de formatação WhatsApp (adicionadas automaticamente ao system prompt)
+const WHATSAPP_FORMATTING_INSTRUCTIONS = `
+## Formatação de Mensagens (WhatsApp)
+Use APENAS a formatação do WhatsApp, NÃO use Markdown:
+- Negrito: *texto* (NÃO use **texto**)
+- Itálico: _texto_ (NÃO use *texto*)
+- Riscado: ~texto~
+- Monoespaçado: \`\`\`texto\`\`\`
+- Citação: > texto
+- Lista: use - ou números (1. 2. 3.)
+`
+
 // =============================================================================
 // Helpers
 // =============================================================================
@@ -315,8 +327,8 @@ export async function processChatAgent(
     // TOOL-BASED RAG: LLM decides when to search
     // =======================================================================
 
-    // Use agent's system prompt as-is (model decides when to use tools)
-    const systemPrompt = agent.system_prompt
+    // Use agent's system prompt + instruções de formatação WhatsApp
+    const systemPrompt = `${agent.system_prompt}\n${WHATSAPP_FORMATTING_INSTRUCTIONS}`
 
     // Define respond tool (required for structured output)
     // Schema é dinâmico baseado em handoff_enabled

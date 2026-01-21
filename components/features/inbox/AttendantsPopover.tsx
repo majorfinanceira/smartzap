@@ -87,34 +87,34 @@ function AttendantRow({
     <div className={cn(
       'p-2.5 rounded-lg border transition-colors',
       attendant.is_active
-        ? 'bg-zinc-800/30 border-zinc-800'
-        : 'bg-zinc-900/50 border-zinc-800/50 opacity-60'
+        ? 'bg-[var(--ds-bg-surface)]/30 border-[var(--ds-border-subtle)]'
+        : 'bg-[var(--ds-bg-surface)]/50 border-[var(--ds-border-subtle)]/50 opacity-60'
     )}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-2 min-w-0">
           <div className={cn(
             'w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0',
-            attendant.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-700 text-zinc-400'
+            attendant.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-[var(--ds-bg-hover)] text-[var(--ds-text-secondary)]'
           )}>
             {attendant.name.charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
             <p className="text-xs font-medium truncate">{attendant.name}</p>
-            <p className="text-[10px] text-zinc-500">{attendant.access_count} acessos</p>
+            <p className="text-[10px] text-[var(--ds-text-muted)]">{attendant.access_count} acessos</p>
           </div>
         </div>
 
         <div className="flex items-center gap-1">
           <button
             onClick={() => setShowToken(!showToken)}
-            className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)]"
             title={showToken ? 'Ocultar link' : 'Ver link'}
           >
             {showToken ? <EyeOff size={12} /> : <Eye size={12} />}
           </button>
           <button
             onClick={handleCopy}
-            className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)]"
             title="Copiar link"
           >
             <Copy size={12} />
@@ -123,7 +123,7 @@ function AttendantRow({
             href={accessUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-300"
+            className="p-1 rounded hover:bg-[var(--ds-bg-hover)] text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)]"
             title="Abrir"
           >
             <ExternalLink size={12} />
@@ -131,7 +131,7 @@ function AttendantRow({
           <button
             onClick={onDelete}
             disabled={isDeleting}
-            className="p-1 rounded hover:bg-red-500/10 text-zinc-500 hover:text-red-400 disabled:opacity-50"
+            className="p-1 rounded hover:bg-red-500/10 text-[var(--ds-text-muted)] hover:text-red-400 disabled:opacity-50"
             title="Remover"
           >
             {isDeleting ? (
@@ -144,8 +144,8 @@ function AttendantRow({
       </div>
 
       {showToken && (
-        <div className="bg-zinc-900/50 rounded px-2 py-1.5">
-          <p className="text-[10px] font-mono text-zinc-400 truncate">{accessUrl}</p>
+        <div className="bg-[var(--ds-bg-surface)]/50 rounded px-2 py-1.5">
+          <p className="text-[10px] font-mono text-[var(--ds-text-secondary)] truncate">{accessUrl}</p>
         </div>
       )}
     </div>
@@ -190,20 +190,20 @@ function CreateForm({ onSuccess }: { onSuccess: () => void }) {
         placeholder="Nome do atendente"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="h-8 text-xs bg-zinc-800/60 border-zinc-700"
+        className="h-8 text-xs bg-[var(--ds-bg-surface)]/60 border-[var(--ds-border-strong)]"
       />
 
       <div className="space-y-2">
-        <label className="flex items-center justify-between p-2 bg-zinc-800/30 rounded-lg">
-          <span className="text-[10px] text-zinc-400">Responder mensagens</span>
+        <label className="flex items-center justify-between p-2 bg-[var(--ds-bg-surface)]/30 rounded-lg">
+          <span className="text-[10px] text-[var(--ds-text-secondary)]">Responder mensagens</span>
           <Switch
             checked={permissions.canReply}
             onCheckedChange={(checked) => setPermissions((p) => ({ ...p, canReply: checked }))}
             className="scale-75"
           />
         </label>
-        <label className="flex items-center justify-between p-2 bg-zinc-800/30 rounded-lg">
-          <span className="text-[10px] text-zinc-400">Devolver para IA</span>
+        <label className="flex items-center justify-between p-2 bg-[var(--ds-bg-surface)]/30 rounded-lg">
+          <span className="text-[10px] text-[var(--ds-text-secondary)]">Devolver para IA</span>
           <Switch
             checked={permissions.canHandoff}
             onCheckedChange={(checked) => setPermissions((p) => ({ ...p, canHandoff: checked }))}
@@ -275,7 +275,7 @@ export function AttendantsPopover() {
             'h-8 w-8 flex items-center justify-center rounded-lg transition-colors relative',
             activeCount > 0
               ? 'text-emerald-400 hover:bg-emerald-500/10'
-              : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/60'
+              : 'text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-surface)]/60'
           )}
           title="Gerenciar atendentes"
         >
@@ -290,7 +290,7 @@ export function AttendantsPopover() {
 
       <PopoverContent align="end" className="w-72 p-0">
         {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--ds-border-subtle)]">
           <div className="flex items-center gap-2">
             <Users size={14} className="text-emerald-400" />
             <span className="text-xs font-medium">Atendentes</span>
@@ -302,7 +302,7 @@ export function AttendantsPopover() {
                 'p-1.5 rounded transition-colors',
                 showCreateForm
                   ? 'bg-emerald-500/10 text-emerald-400'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                  : 'text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)]'
               )}
               title="Novo atendente"
             >
@@ -310,7 +310,7 @@ export function AttendantsPopover() {
             </button>
             <a
               href="/settings/attendants"
-              className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="p-1.5 rounded text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
               title="Configurações completas"
             >
               <Settings size={14} />
@@ -321,19 +321,19 @@ export function AttendantsPopover() {
         {/* Content */}
         <div className="p-2 max-h-80 overflow-y-auto">
           {showCreateForm && (
-            <div className="mb-3 pb-3 border-b border-zinc-800">
+            <div className="mb-3 pb-3 border-b border-[var(--ds-border-subtle)]">
               <CreateForm onSuccess={() => setShowCreateForm(false)} />
             </div>
           )}
 
           {isLoading ? (
             <div className="flex items-center justify-center py-6">
-              <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+              <Loader2 className="w-5 h-5 animate-spin text-[var(--ds-text-muted)]" />
             </div>
           ) : attendants.length === 0 ? (
             <div className="text-center py-6">
-              <Users className="w-8 h-8 mx-auto text-zinc-700 mb-2" />
-              <p className="text-xs text-zinc-500 mb-2">Nenhum atendente</p>
+              <Users className="w-8 h-8 mx-auto text-[var(--ds-text-muted)] mb-2" />
+              <p className="text-xs text-[var(--ds-text-muted)] mb-2">Nenhum atendente</p>
               {!showCreateForm && (
                 <Button
                   size="sm"
@@ -362,8 +362,8 @@ export function AttendantsPopover() {
 
         {/* Footer hint */}
         {attendants.length > 0 && (
-          <div className="px-3 py-2 border-t border-zinc-800 bg-zinc-900/50">
-            <p className="text-[10px] text-zinc-600 text-center">
+          <div className="px-3 py-2 border-t border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/50">
+            <p className="text-[10px] text-[var(--ds-text-muted)] text-center">
               Compartilhe o link para que atendentes acessem sem login
             </p>
           </div>

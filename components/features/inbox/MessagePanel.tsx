@@ -150,10 +150,10 @@ export function MessagePanel({
   // No conversation selected
   if (!conversation && !isLoadingConversation) {
     return (
-      <div className="flex flex-col h-full bg-zinc-950 items-center justify-center">
-        <div className="w-14 h-14 rounded-2xl bg-zinc-900 flex items-center justify-center mb-4">
+      <div className="flex flex-col h-full bg-[var(--ds-bg-base)] items-center justify-center">
+        <div className="w-14 h-14 rounded-2xl bg-[var(--ds-bg-surface)] flex items-center justify-center mb-4">
           <svg
-            className="h-7 w-7 text-zinc-600"
+            className="h-7 w-7 text-[var(--ds-text-muted)]"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -166,7 +166,7 @@ export function MessagePanel({
             />
           </svg>
         </div>
-        <p className="text-sm text-zinc-500">
+        <p className="text-sm text-[var(--ds-text-muted)]">
           Selecione uma conversa
         </p>
       </div>
@@ -176,8 +176,8 @@ export function MessagePanel({
   // Loading state
   if (isLoadingConversation) {
     return (
-      <div className="flex flex-col h-full bg-zinc-950 items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-zinc-600" />
+      <div className="flex flex-col h-full bg-[var(--ds-bg-base)] items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-[var(--ds-text-muted)]" />
       </div>
     )
   }
@@ -185,7 +185,7 @@ export function MessagePanel({
   const isOpen = conversation?.status === 'open'
 
   return (
-    <div className="flex flex-col h-full bg-zinc-950 relative">
+    <div className="flex flex-col h-full bg-[var(--ds-bg-base)] relative">
       {/* Header - integrated with content */}
       {conversation && (
         <ConversationHeader
@@ -216,7 +216,7 @@ export function MessagePanel({
         {/* Load more indicator */}
         {isLoadingMore && (
           <div className="flex justify-center py-3">
-            <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--ds-text-muted)]" />
           </div>
         )}
 
@@ -225,7 +225,7 @@ export function MessagePanel({
           <div className="flex justify-center py-3">
             <button
               onClick={onLoadMore}
-              className="text-[10px] text-zinc-500 hover:text-zinc-400 transition-colors"
+              className="text-[10px] text-[var(--ds-text-muted)] hover:text-[var(--ds-text-secondary)] transition-colors"
             >
               Carregar anteriores
             </button>
@@ -241,15 +241,15 @@ export function MessagePanel({
                 className={cn(
                   'animate-pulse rounded-2xl h-9',
                   i % 2 === 0
-                    ? 'self-end w-2/5 bg-zinc-800/40'
-                    : 'self-start w-1/2 bg-zinc-800/60'
+                    ? 'self-end w-2/5 bg-[var(--ds-bg-surface)]/40'
+                    : 'self-start w-1/2 bg-[var(--ds-bg-surface)]/60'
                 )}
               />
             ))}
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <p className="text-xs text-zinc-600">Nenhuma mensagem ainda</p>
+            <p className="text-xs text-[var(--ds-text-muted)]">Nenhuma mensagem ainda</p>
           </div>
         ) : (
           <div className="flex flex-col">
@@ -278,7 +278,7 @@ export function MessagePanel({
       {showScrollButton && (
         <button
           onClick={() => scrollToBottom()}
-          className="absolute bottom-20 right-4 h-8 w-8 rounded-full bg-zinc-800 border border-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-all shadow-lg"
+          className="absolute bottom-20 right-4 h-8 w-8 rounded-full bg-[var(--ds-bg-surface)] border border-[var(--ds-border-subtle)] flex items-center justify-center text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-all shadow-lg"
         >
           <ChevronDown className="h-4 w-4" />
         </button>

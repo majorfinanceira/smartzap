@@ -179,10 +179,10 @@ export function QuickReplyManager({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-lg bg-zinc-900 border-zinc-800">
+      <DialogContent className="sm:max-w-lg bg-[var(--ds-bg-elevated)] border-[var(--ds-border-subtle)]">
         <DialogHeader>
-          <DialogTitle className="text-white">Respostas Rápidas</DialogTitle>
-          <DialogDescription className="text-zinc-400">
+          <DialogTitle className="text-[var(--ds-text-primary)]">Respostas Rápidas</DialogTitle>
+          <DialogDescription className="text-[var(--ds-text-muted)]">
             Crie e gerencie suas respostas prontas para agilizar o atendimento
           </DialogDescription>
         </DialogHeader>
@@ -197,44 +197,44 @@ export function QuickReplyManager({
 
         {/* Form for creating/editing */}
         {isEditing && (
-          <div className="space-y-4 p-4 rounded-lg bg-zinc-800/50 border border-zinc-700/50">
+          <div className="space-y-4 p-4 rounded-lg bg-[var(--ds-bg-surface)]/50 border border-[var(--ds-border-subtle)]">
             <div className="space-y-2">
-              <label className="text-xs text-zinc-400 font-medium">Título</label>
+              <label className="text-xs text-[var(--ds-text-muted)] font-medium">Título</label>
               <Input
                 value={formData.title}
                 onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
                 placeholder="Ex: Saudação inicial"
-                className="bg-zinc-900 border-zinc-700 text-zinc-200"
+                className="bg-[var(--ds-bg-surface)] border-[var(--ds-border-strong)] text-[var(--ds-text-primary)]"
                 autoFocus
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-zinc-400 font-medium">Conteúdo</label>
+              <label className="text-xs text-[var(--ds-text-muted)] font-medium">Conteúdo</label>
               <Textarea
                 value={formData.content}
                 onChange={(e) => setFormData(prev => ({ ...prev, content: e.target.value }))}
                 placeholder="Olá! Como posso ajudar você hoje?"
                 rows={3}
-                className="bg-zinc-900 border-zinc-700 text-zinc-200 resize-none"
+                className="bg-[var(--ds-bg-surface)] border-[var(--ds-border-strong)] text-[var(--ds-text-primary)] resize-none"
               />
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-zinc-400 font-medium">
-                Atalho <span className="text-zinc-500">(opcional)</span>
+              <label className="text-xs text-[var(--ds-text-muted)] font-medium">
+                Atalho <span className="text-[var(--ds-text-secondary)]">(opcional)</span>
               </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">/</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-muted)]">/</span>
                 <Input
                   value={formData.shortcut}
                   onChange={(e) => setFormData(prev => ({ ...prev, shortcut: e.target.value.replace(/[^a-z0-9]/gi, '').toLowerCase() }))}
                   placeholder="ola"
-                  className="pl-7 bg-zinc-900 border-zinc-700 text-zinc-200"
+                  className="pl-7 bg-[var(--ds-bg-surface)] border-[var(--ds-border-strong)] text-[var(--ds-text-primary)]"
                   maxLength={20}
                 />
               </div>
-              <p className="text-[11px] text-zinc-500">Digite /atalho na caixa de mensagem para inserir rapidamente</p>
+              <p className="text-[11px] text-[var(--ds-text-muted)]">Digite /atalho na caixa de mensagem para inserir rapidamente</p>
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -243,7 +243,7 @@ export function QuickReplyManager({
                 size="sm"
                 onClick={handleCancel}
                 disabled={isSaving}
-                className="text-zinc-400 hover:text-zinc-200"
+                className="text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)]"
               >
                 Cancelar
               </Button>
@@ -275,8 +275,8 @@ export function QuickReplyManager({
             <ScrollArea className="max-h-[300px] -mx-6 px-6">
               {quickReplies.length === 0 ? (
                 <div className="py-8 text-center">
-                  <p className="text-sm text-zinc-500">Nenhuma resposta rápida criada</p>
-                  <p className="text-xs text-zinc-600 mt-1">Clique em "Nova" para começar</p>
+                  <p className="text-sm text-[var(--ds-text-muted)]">Nenhuma resposta rápida criada</p>
+                  <p className="text-xs text-[var(--ds-text-secondary)] mt-1">Clique em "Nova" para começar</p>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -285,23 +285,23 @@ export function QuickReplyManager({
                       key={qr.id}
                       className={cn(
                         'group p-3 rounded-lg border transition-colors',
-                        'bg-zinc-800/30 border-zinc-700/50',
-                        'hover:bg-zinc-800/50 hover:border-zinc-700'
+                        'bg-[var(--ds-bg-surface)]/30 border-[var(--ds-border-subtle)]',
+                        'hover:bg-[var(--ds-bg-surface)]/50 hover:border-[var(--ds-border-strong)]'
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-zinc-200 truncate">
+                            <span className="text-sm font-medium text-[var(--ds-text-primary)] truncate">
                               {qr.title}
                             </span>
                             {qr.shortcut && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700 text-zinc-400 font-mono shrink-0">
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--ds-bg-surface)] text-[var(--ds-text-muted)] font-mono shrink-0">
                                 /{qr.shortcut}
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-zinc-500 mt-1 line-clamp-2">
+                          <p className="text-xs text-[var(--ds-text-muted)] mt-1 line-clamp-2">
                             {qr.content}
                           </p>
                         </div>
@@ -309,7 +309,7 @@ export function QuickReplyManager({
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => handleStartEdit(qr)}
-                            className="p-1.5 rounded-md text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
+                            className="p-1.5 rounded-md text-[var(--ds-text-muted)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)] transition-colors"
                             title="Editar"
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -317,7 +317,7 @@ export function QuickReplyManager({
                           <button
                             onClick={() => handleDelete(qr.id)}
                             disabled={deletingId === qr.id}
-                            className="p-1.5 rounded-md text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                            className="p-1.5 rounded-md text-[var(--ds-text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                             title="Excluir"
                           >
                             {deletingId === qr.id ? (

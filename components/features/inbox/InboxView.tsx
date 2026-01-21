@@ -143,14 +143,14 @@ export function InboxView({
 
   // Panel-specific error fallbacks - matching seamless background
   const ConversationListFallback = (
-    <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-900">
-      <div className="w-10 h-10 mb-3 rounded-full bg-zinc-800 flex items-center justify-center">
-        <Users className="w-5 h-5 text-zinc-500" />
+    <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-[var(--ds-bg-elevated)]">
+      <div className="w-10 h-10 mb-3 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center">
+        <Users className="w-5 h-5 text-[var(--ds-text-muted)]" />
       </div>
-      <p className="text-sm text-zinc-400 mb-3">Erro ao carregar</p>
+      <p className="text-sm text-[var(--ds-text-secondary)] mb-3">Erro ao carregar</p>
       <button
         onClick={() => window.location.reload()}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors"
       >
         <RefreshCw className="w-3 h-3" />
         Recarregar
@@ -159,14 +159,14 @@ export function InboxView({
   )
 
   const MessagePanelFallback = (
-    <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-zinc-950">
-      <div className="w-10 h-10 mb-3 rounded-full bg-zinc-800 flex items-center justify-center">
-        <MessageSquare className="w-5 h-5 text-zinc-500" />
+    <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-[var(--ds-bg-base)]">
+      <div className="w-10 h-10 mb-3 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center">
+        <MessageSquare className="w-5 h-5 text-[var(--ds-text-muted)]" />
       </div>
-      <p className="text-sm text-zinc-400 mb-3">Erro ao carregar</p>
+      <p className="text-sm text-[var(--ds-text-secondary)] mb-3">Erro ao carregar</p>
       <button
         onClick={() => window.location.reload()}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-zinc-800 text-zinc-300 rounded-lg hover:bg-zinc-700 transition-colors"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-[var(--ds-bg-surface)] text-[var(--ds-text-secondary)] rounded-lg hover:bg-[var(--ds-bg-hover)] transition-colors"
       >
         <RefreshCw className="w-3 h-3" />
         Recarregar
@@ -177,7 +177,7 @@ export function InboxView({
   return (
     <TooltipProvider delayDuration={300}>
       {/* Full height container - uses parent height from PageLayoutScope */}
-      <div className="h-full bg-zinc-950">
+      <div className="h-full bg-[var(--ds-bg-base)]">
         <ResizablePanelGroup direction="horizontal" className="h-full">
           {/* Conversation list sidebar - subtle shadow instead of border */}
           <ResizablePanel
@@ -210,7 +210,7 @@ export function InboxView({
           </ResizablePanel>
 
           {/* Invisible resize handle - functional but not visual */}
-          <ResizableHandle className="w-px bg-transparent hover:bg-zinc-700/50 transition-colors" />
+          <ResizableHandle className="w-px bg-transparent hover:bg-[var(--ds-border-strong)] transition-colors" />
 
           {/* Message panel - main content area */}
           <ResizablePanel defaultSize={72} minSize={50}>

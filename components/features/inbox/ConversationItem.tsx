@@ -66,22 +66,22 @@ export const ConversationItem = memo(function ConversationItem({
         'w-full px-2 py-2 flex items-start gap-2.5 text-left rounded-lg',
         'transition-all duration-150',
         // Default state
-        'hover:bg-zinc-800/50',
+        'hover:bg-[var(--ds-bg-hover)]',
         // Selected state - subtle background, no border
-        isSelected && 'bg-zinc-800/80',
+        isSelected && 'bg-[var(--ds-bg-surface)]/80',
         // Unread state - slightly different bg
-        unread_count > 0 && !isSelected && 'bg-zinc-800/30'
+        unread_count > 0 && !isSelected && 'bg-[var(--ds-bg-surface)]/30'
       )}
     >
       {/* Avatar - smaller, cleaner */}
       <div className="relative shrink-0">
-        <div className="h-9 w-9 rounded-full bg-zinc-800 flex items-center justify-center">
-          <span className="text-xs font-medium text-zinc-300">{initials}</span>
+        <div className="h-9 w-9 rounded-full bg-[var(--ds-bg-surface)] flex items-center justify-center">
+          <span className="text-xs font-medium text-[var(--ds-text-secondary)]">{initials}</span>
         </div>
         {/* Mode indicator dot */}
         <span
           className={cn(
-            'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-900',
+            'absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--ds-bg-elevated)]',
             mode === 'bot' ? 'bg-emerald-500' : 'bg-amber-500'
           )}
         />
@@ -94,7 +94,7 @@ export const ConversationItem = memo(function ConversationItem({
           <span
             className={cn(
               'truncate text-[13px]',
-              unread_count > 0 ? 'font-medium text-zinc-100' : 'text-zinc-300'
+              unread_count > 0 ? 'font-medium text-[var(--ds-text-primary)]' : 'text-[var(--ds-text-secondary)]'
             )}
           >
             {displayName}
@@ -105,7 +105,7 @@ export const ConversationItem = memo(function ConversationItem({
                 {unread_count > 99 ? '99' : unread_count}
               </span>
             )}
-            <span className="text-[10px] text-zinc-500">{timeAgo}</span>
+            <span className="text-[10px] text-[var(--ds-text-muted)]">{timeAgo}</span>
           </div>
         </div>
 
@@ -113,14 +113,14 @@ export const ConversationItem = memo(function ConversationItem({
         <div className="flex items-center gap-1.5 mt-0.5">
           {/* Closed indicator */}
           {status === 'closed' && (
-            <span className="text-[9px] text-zinc-500 bg-zinc-800 px-1 py-0.5 rounded">
+            <span className="text-[9px] text-[var(--ds-text-muted)] bg-[var(--ds-bg-surface)] px-1 py-0.5 rounded">
               fechada
             </span>
           )}
           <p
             className={cn(
               'text-[11px] truncate',
-              unread_count > 0 ? 'text-zinc-400' : 'text-zinc-500'
+              unread_count > 0 ? 'text-[var(--ds-text-secondary)]' : 'text-[var(--ds-text-muted)]'
             )}
           >
             {last_message_preview || 'Sem mensagens'}
@@ -139,7 +139,7 @@ export const ConversationItem = memo(function ConversationItem({
               />
             ))}
             {labels.length > 3 && (
-              <span className="text-[9px] text-zinc-600">+{labels.length - 3}</span>
+              <span className="text-[9px] text-[var(--ds-text-muted)]">+{labels.length - 3}</span>
             )}
           </div>
         )}

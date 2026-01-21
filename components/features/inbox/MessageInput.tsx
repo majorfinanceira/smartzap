@@ -226,15 +226,15 @@ export function MessageInput({
   return (
     <div className={cn(
       'border-t transition-colors duration-150',
-      isFocused ? 'border-zinc-700/80' : 'border-zinc-800/50',
-      'bg-zinc-950'
+      isFocused ? 'border-[var(--ds-border-strong)]' : 'border-[var(--ds-border-subtle)]',
+      'bg-[var(--ds-bg-elevated)]'
     )}>
       {/* AI Suggestion notes - subtle inline banner */}
       {suggestionNotes && (
-        <div className="px-3 py-2 bg-zinc-900/50 border-b border-zinc-800/50">
+        <div className="px-3 py-2 bg-[var(--ds-bg-surface)]/50 border-b border-[var(--ds-border-subtle)]">
           <div className="flex items-start gap-2">
-            <Sparkles className="h-3 w-3 text-zinc-500 mt-0.5 shrink-0" />
-            <p className="text-[11px] text-zinc-500 leading-relaxed">{suggestionNotes}</p>
+            <Sparkles className="h-3 w-3 text-[var(--ds-text-muted)] mt-0.5 shrink-0" />
+            <p className="text-[11px] text-[var(--ds-text-muted)] leading-relaxed">{suggestionNotes}</p>
           </div>
         </div>
       )}
@@ -260,8 +260,8 @@ export function MessageInput({
                   'transition-all duration-150',
                   isLoadingSuggestion && 'animate-pulse',
                   canSuggest
-                    ? 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                    : 'text-zinc-600 cursor-not-allowed'
+                    ? 'text-[var(--ds-text-secondary)] hover:text-[var(--ds-text-primary)] hover:bg-[var(--ds-bg-hover)]'
+                    : 'text-[var(--ds-text-muted)] cursor-not-allowed'
                 )}
               >
                 {isLoadingSuggestion ? (
@@ -283,7 +283,7 @@ export function MessageInput({
           {shortcutSuggestions.length > 0 && (
             <div
               ref={autocompleteRef}
-              className="absolute bottom-full left-0 right-0 mb-1 bg-zinc-900 border border-zinc-700 rounded-lg shadow-xl overflow-hidden z-50"
+              className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--ds-bg-surface)] border border-[var(--ds-border-strong)] rounded-lg shadow-xl overflow-hidden z-50"
             >
               <div className="py-1">
                 {shortcutSuggestions.map((qr, index) => (
@@ -298,31 +298,31 @@ export function MessageInput({
                     className={cn(
                       'w-full px-3 py-2 text-left transition-colors',
                       index === selectedShortcutIndex
-                        ? 'bg-zinc-800'
-                        : 'hover:bg-zinc-800/50'
+                        ? 'bg-[var(--ds-bg-hover)]'
+                        : 'hover:bg-[var(--ds-bg-hover)]/50'
                     )}
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono">
                         /{qr.shortcut}
                       </span>
-                      <span className="text-sm font-medium text-zinc-200 truncate">
+                      <span className="text-sm font-medium text-[var(--ds-text-primary)] truncate">
                         {qr.title}
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-500 mt-0.5 line-clamp-1 pl-0">
+                    <p className="text-xs text-[var(--ds-text-muted)] mt-0.5 line-clamp-1 pl-0">
                       {qr.content}
                     </p>
                   </button>
                 ))}
               </div>
-              <div className="px-3 py-1.5 border-t border-zinc-800 bg-zinc-900/50">
-                <p className="text-[10px] text-zinc-600">
-                  <span className="text-zinc-500">↑↓</span> navegar
-                  <span className="mx-2 text-zinc-700">·</span>
-                  <span className="text-zinc-500">↵</span> selecionar
-                  <span className="mx-2 text-zinc-700">·</span>
-                  <span className="text-zinc-500">esc</span> fechar
+              <div className="px-3 py-1.5 border-t border-[var(--ds-border-subtle)] bg-[var(--ds-bg-surface)]/50">
+                <p className="text-[10px] text-[var(--ds-text-muted)]">
+                  <span className="text-[var(--ds-text-muted)]">↑↓</span> navegar
+                  <span className="mx-2 text-[var(--ds-text-muted)]/50">·</span>
+                  <span className="text-[var(--ds-text-muted)]">↵</span> selecionar
+                  <span className="mx-2 text-[var(--ds-text-muted)]/50">·</span>
+                  <span className="text-[var(--ds-text-muted)]">esc</span> fechar
                 </p>
               </div>
             </div>
@@ -340,9 +340,9 @@ export function MessageInput({
             rows={1}
             className={cn(
               'min-h-[36px] max-h-[100px] resize-none py-2 px-3',
-              'bg-zinc-900/50 border-zinc-800/30 rounded-lg',
-              'text-sm text-zinc-200 placeholder:text-zinc-500',
-              'focus:border-zinc-700 focus:ring-0 focus:bg-zinc-900',
+              'bg-[var(--ds-bg-surface)]/50 border-[var(--ds-border-subtle)] rounded-lg',
+              'text-sm text-[var(--ds-text-primary)] placeholder:text-[var(--ds-text-muted)]',
+              'focus:border-[var(--ds-border-strong)] focus:ring-0 focus:bg-[var(--ds-bg-surface)]',
               'transition-all duration-100',
               disabled && 'opacity-40 cursor-not-allowed'
             )}
@@ -360,7 +360,7 @@ export function MessageInput({
                 'transition-all duration-150',
                 canSend
                   ? 'bg-emerald-600 text-white hover:bg-emerald-500 active:scale-95'
-                  : 'bg-zinc-800/50 text-zinc-600 cursor-not-allowed'
+                  : 'bg-[var(--ds-bg-surface)]/50 text-[var(--ds-text-muted)] cursor-not-allowed'
               )}
             >
               {isSending ? (

@@ -234,7 +234,7 @@ function Header({
           color: '#ffffff',
         }}
       >
-        {getInitials(conversation.contact?.name)}
+        {getInitials(conversation.contact?.name ?? null)}
       </div>
 
       <div className="flex-1 min-w-0">
