@@ -39,11 +39,14 @@ export function DashboardClientWrapper({ initialData }: { initialData?: any }) {
         }
     }, [isLoading, queryClient])
 
+    // Não mostra loading se já temos initialData do servidor
+    const showLoading = isLoading && !initialData
+
     return (
         <DashboardView
             stats={stats ?? DEFAULT_STATS}
             recentCampaigns={recentCampaigns ?? []}
-            isLoading={isLoading}
+            isLoading={showLoading}
         />
     )
 }

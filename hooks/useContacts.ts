@@ -12,6 +12,7 @@ import {
   sanitizeCustomFieldsForUpdate,
 } from '@/lib/business/contact';
 import { useContactSelection } from './useContactSelection';
+import type { ContactsInitialData } from '@/app/(dashboard)/contacts/actions';
 
 // =============================================================================
 // QUERY KEY HELPERS - Normalized for consistency
@@ -38,7 +39,7 @@ const createContactsQueryKey = (params: ContactsQueryParams) => [
   }
 ] as const;
 
-export const useContactsController = () => {
+export const useContactsController = (initialData?: ContactsInitialData) => {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   // Em alguns ambientes de teste o mock pode retornar null/undefined.
@@ -71,6 +72,12 @@ export const useContactsController = () => {
   };
   const contactsQueryKey = createContactsQueryKey(queryParams);
 
+  // Se temos initialData e estamos na página 1 sem filtros, usamos como dados iniciais
+  const isFirstPageNoFilters = currentPage === 1 && !searchTerm.trim() && statusFilter === 'ALL' && tagFilter === 'ALL'
+  const contactsInitial = isFirstPageNoFilters && initialData
+    ? { data: initialData.contacts, total: initialData.total }
+    : undefined
+
   const contactsQuery = useQuery({
     queryKey: contactsQueryKey,
     queryFn: () => contactService.list({
@@ -80,6 +87,7 @@ export const useContactsController = () => {
       status: statusFilter,
       tag: tagFilter,
     }),
+    initialData: contactsInitial,
     staleTime: CACHE.contacts,
     placeholderData: keepPreviousData,
   });
@@ -104,18 +112,25 @@ export const useContactsController = () => {
   const statsQuery = useQuery({
     queryKey: ['contactStats'],
     queryFn: contactService.getStats,
+    initialData: initialData?.stats ? {
+      total: initialData.stats.total,
+      optIn: initialData.stats.active,
+      optOut: initialData.stats.optOut
+    } : undefined,
     staleTime: CACHE.stats
   });
 
   const tagsQuery = useQuery({
     queryKey: ['contactTags'],
     queryFn: contactService.getTags,
+    initialData: initialData?.tags,
     staleTime: CACHE.stats,
   });
 
   const customFieldsQuery = useQuery({
     queryKey: ['customFields'],
     queryFn: () => customFieldService.getAll(),
+    initialData: initialData?.customFields,
     staleTime: CACHE.customFields
   });
 

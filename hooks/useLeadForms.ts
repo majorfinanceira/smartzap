@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CreateLeadFormDTO, LeadForm, UpdateLeadFormDTO } from '@/types'
 import { leadFormService } from '@/services'
+import type { FormsInitialData } from '@/app/(dashboard)/forms/actions'
 
 const fetchTags = async (): Promise<string[]> => {
   const resp = await fetch('/api/contacts/tags', { cache: 'no-store' })
@@ -9,30 +10,32 @@ const fetchTags = async (): Promise<string[]> => {
   return resp.json()
 }
 
-export const useLeadFormsQuery = (options?: { enabled?: boolean }) => {
+export const useLeadFormsQuery = (options?: { enabled?: boolean; initialData?: LeadForm[] }) => {
   return useQuery({
     queryKey: ['leadForms'],
     queryFn: leadFormService.getAll,
+    initialData: options?.initialData,
     staleTime: 30 * 1000,
     enabled: options?.enabled ?? true,
   })
 }
 
-export const useLeadFormTagsQuery = (options?: { enabled?: boolean }) => {
+export const useLeadFormTagsQuery = (options?: { enabled?: boolean; initialData?: string[] }) => {
   return useQuery({
     queryKey: ['contactTags'],
     queryFn: fetchTags,
+    initialData: options?.initialData,
     staleTime: 60 * 1000,
     enabled: options?.enabled ?? true,
   })
 }
 
-export const useLeadFormsController = (options?: { enabled?: boolean }) => {
+export const useLeadFormsController = (options?: { enabled?: boolean; initialData?: FormsInitialData }) => {
   const queryClient = useQueryClient()
   const enabled = options?.enabled ?? true
 
-  const leadFormsQuery = useLeadFormsQuery({ enabled })
-  const tagsQuery = useLeadFormTagsQuery({ enabled })
+  const leadFormsQuery = useLeadFormsQuery({ enabled, initialData: options?.initialData?.forms })
+  const tagsQuery = useLeadFormTagsQuery({ enabled, initialData: options?.initialData?.tags })
 
   const forms = leadFormsQuery.data ?? []
   const tags = tagsQuery.data ?? []

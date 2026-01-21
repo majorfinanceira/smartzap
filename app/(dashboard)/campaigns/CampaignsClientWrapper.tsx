@@ -38,6 +38,9 @@ export function CampaignsClientWrapper({ initialData }: { initialData?: Campaign
         setTagFilter,
     } = useCampaignsController(initialData)
 
+    // Não mostra loading se já temos initialData do servidor
+    const showLoading = isLoading && !initialData
+
     // Memoiza handler para evitar re-renders desnecessários no CampaignTableRow
     const handleRowClick = useCallback((id: string) => {
         router.push(`/campaigns/${id}`)
@@ -60,7 +63,7 @@ export function CampaignsClientWrapper({ initialData }: { initialData?: Campaign
         <>
             <CampaignListView
                 campaigns={campaigns}
-                isLoading={isLoading}
+                isLoading={showLoading}
                 filter={filter}
                 searchTerm={searchTerm}
                 onFilterChange={setFilter}

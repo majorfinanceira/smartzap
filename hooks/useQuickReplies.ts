@@ -15,13 +15,18 @@ const QUICK_REPLIES_KEY = ['inbox-quick-replies']
 // Quick Replies Hook
 // =============================================================================
 
-export function useQuickReplies() {
+export interface UseQuickRepliesOptions {
+  initialData?: InboxQuickReply[]
+}
+
+export function useQuickReplies(options: UseQuickRepliesOptions = {}) {
   const queryClient = useQueryClient()
 
   // List query
   const quickRepliesQuery = useQuery({
     queryKey: QUICK_REPLIES_KEY,
     queryFn: inboxService.listQuickReplies,
+    initialData: options.initialData,
     staleTime: CACHE.campaigns,
   })
 

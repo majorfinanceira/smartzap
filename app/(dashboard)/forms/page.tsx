@@ -1,39 +1,23 @@
-'use client'
+import { Suspense } from 'react'
+import { getFormsInitialData } from './actions'
+import { FormsClientWrapper } from './FormsClientWrapper'
+import { FormsSkeleton } from '@/components/features/lead-forms/FormsSkeleton'
 
-import { useLeadFormsController } from '@/hooks/useLeadForms'
-import { LeadFormsView } from '@/components/features/lead-forms/LeadFormsView'
+// ISR: revalida a cada 2 minutos (forms mudam pouco)
+export const revalidate = 120
 
-export default function LeadFormsPage() {
-  const controller = useLeadFormsController()
+async function FormsWithData() {
+  const initialData = await getFormsInitialData()
+  return <FormsClientWrapper initialData={initialData} />
+}
 
+/**
+ * Forms Page - RSC Híbrido
+ */
+export default function FormsPage() {
   return (
-    <LeadFormsView
-      forms={controller.forms}
-      tags={controller.tags}
-      isLoading={controller.isLoading}
-      error={controller.error}
-      publicBaseUrl={controller.publicBaseUrl}
-      isCreateOpen={controller.isCreateOpen}
-      setIsCreateOpen={controller.setIsCreateOpen}
-      createDraft={controller.createDraft}
-      setCreateDraft={controller.setCreateDraft}
-      onCreate={controller.create}
-      isCreating={controller.isCreating}
-      createError={controller.createError}
-
-      // edit
-      isEditOpen={controller.isEditOpen}
-      editDraft={controller.editDraft}
-      setEditDraft={controller.setEditDraft}
-      onEdit={controller.openEdit}
-      onCloseEdit={controller.closeEdit}
-      onSaveEdit={controller.saveEdit}
-      isUpdating={controller.isUpdating}
-      updateError={controller.updateError}
-
-      onDelete={controller.remove}
-      isDeleting={controller.isDeleting}
-      deleteError={controller.deleteError}
-    />
+    <Suspense fallback={<FormsSkeleton />}>
+      <FormsWithData />
+    </Suspense>
   )
 }

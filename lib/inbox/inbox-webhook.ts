@@ -390,8 +390,26 @@ async function findContactId(phone: string): Promise<string | null> {
 }
 
 /**
+ * Check if AI agents are globally enabled
+ * Returns true if enabled (default), false if disabled
+ */
+async function isAIAgentsGloballyEnabled(): Promise<boolean> {
+  const supabase = getSupabaseAdmin()
+  if (!supabase) return true // Default to enabled if no supabase
+
+  const { data, error } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'ai_agents_global_enabled')
+    .single()
+
+  if (error || !data) return true // Default to enabled
+  return data.value !== 'false'
+}
+
+/**
  * Get AI agent for conversation
- * First checks conversation assignment, then falls back to default agent
+ * First checks global toggle, then conversation assignment, then default agent
  */
 async function getAIAgentForConversation(
   conversationId: string
@@ -399,6 +417,13 @@ async function getAIAgentForConversation(
   const supabase = getSupabaseAdmin()
   if (!supabase) {
     console.error('[Inbox] Supabase admin client not available')
+    return null
+  }
+
+  // Check global toggle first
+  const isEnabled = await isAIAgentsGloballyEnabled()
+  if (!isEnabled) {
+    console.log('[Inbox] AI agents globally disabled, skipping')
     return null
   }
 

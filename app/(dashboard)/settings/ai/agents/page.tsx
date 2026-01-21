@@ -15,12 +15,13 @@ import {
   KnowledgeBasePanel,
   AIAgentTestChat,
 } from '@/components/features/settings/ai-agents'
-import { useAIAgentsController } from '@/hooks/useAIAgents'
+import { useAIAgentsController, useAIAgentsGlobalToggle } from '@/hooks/useAIAgents'
 import { useKnowledgeBaseController } from '@/hooks/useKnowledgeBase'
 import type { AIAgent } from '@/types'
 
 export default function AIAgentsSettingsPage() {
   const controller = useAIAgentsController()
+  const globalToggle = useAIAgentsGlobalToggle()
   const [selectedAgent, setSelectedAgent] = useState<AIAgent | null>(null)
 
   // Auto-select default agent (or first agent) when agents load
@@ -70,6 +71,9 @@ export default function AIAgentsSettingsPage() {
           isCreating={controller.isCreating}
           isUpdating={controller.isUpdating}
           isDeleting={controller.isDeleting}
+          globalEnabled={globalToggle.enabled}
+          isGlobalToggleLoading={globalToggle.isLoading || globalToggle.isUpdating}
+          onGlobalToggle={globalToggle.toggle}
         />
 
         {/* Agent details section (Knowledge Base + Test) */}

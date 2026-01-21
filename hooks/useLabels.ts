@@ -14,13 +14,18 @@ const LABELS_KEY = ['inbox-labels']
 // Labels Hook
 // =============================================================================
 
-export function useLabels() {
+export interface UseLabelsOptions {
+  initialData?: InboxLabel[]
+}
+
+export function useLabels(options: UseLabelsOptions = {}) {
   const queryClient = useQueryClient()
 
   // List query
   const labelsQuery = useQuery({
     queryKey: LABELS_KEY,
     queryFn: inboxService.listLabels,
+    initialData: options.initialData,
     staleTime: CACHE.campaigns,
   })
 

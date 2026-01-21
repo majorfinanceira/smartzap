@@ -57,7 +57,26 @@ async function getAgent(agentId: string): Promise<AIAgent | null> {
   return data as AIAgent
 }
 
+/**
+ * Check if AI agents are globally enabled
+ */
+async function isAIAgentsGloballyEnabled(): Promise<boolean> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('settings')
+    .select('value')
+    .eq('key', 'ai_agents_global_enabled')
+    .single()
+
+  if (error || !data) return true // Default to enabled
+  return data.value !== 'false'
+}
+
 async function getDefaultAgent(): Promise<AIAgent | null> {
+  // Check global toggle first
+  const isEnabled = await isAIAgentsGloballyEnabled()
+  if (!isEnabled) return null
+
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('ai_agents')

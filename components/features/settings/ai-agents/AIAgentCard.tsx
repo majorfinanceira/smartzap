@@ -43,6 +43,7 @@ export interface AIAgentCardProps {
   onSetDefault: (agent: AIAgent) => void
   onToggleActive: (agent: AIAgent, isActive: boolean) => void
   isUpdating?: boolean
+  disabled?: boolean
 }
 
 export function AIAgentCard({
@@ -52,6 +53,7 @@ export function AIAgentCard({
   onSetDefault,
   onToggleActive,
   isUpdating,
+  disabled,
 }: AIAgentCardProps) {
   const debounceSeconds = agent.debounce_ms / 1000
 
@@ -101,7 +103,7 @@ export function AIAgentCard({
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8"
-                disabled={isUpdating}
+                disabled={isUpdating || disabled}
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>

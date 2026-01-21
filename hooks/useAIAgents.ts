@@ -181,6 +181,67 @@ export function useAIAgentMutations() {
 }
 
 // =============================================================================
+// Global Toggle Hook
+// =============================================================================
+
+const AI_AGENTS_TOGGLE_KEY = ['ai-agents-global-toggle']
+
+interface AIAgentsToggleResponse {
+  enabled: boolean
+}
+
+export function useAIAgentsGlobalToggle() {
+  const queryClient = useQueryClient()
+
+  // Query para buscar estado atual
+  const query = useQuery<AIAgentsToggleResponse>({
+    queryKey: AI_AGENTS_TOGGLE_KEY,
+    queryFn: async () => {
+      const res = await fetch('/api/settings/ai-agents-toggle')
+      if (!res.ok) throw new Error('Failed to fetch AI agents toggle')
+      return res.json()
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  })
+
+  // Mutation para atualizar
+  const mutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await fetch('/api/settings/ai-agents-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      })
+      if (!res.ok) throw new Error('Failed to update AI agents toggle')
+      return res.json()
+    },
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: AI_AGENTS_TOGGLE_KEY })
+
+      // Optimistic update
+      const previous = queryClient.getQueryData<AIAgentsToggleResponse>(AI_AGENTS_TOGGLE_KEY)
+      queryClient.setQueryData<AIAgentsToggleResponse>(AI_AGENTS_TOGGLE_KEY, { enabled })
+
+      return { previous }
+    },
+    onError: (_, __, context) => {
+      // Rollback on error
+      if (context?.previous) {
+        queryClient.setQueryData(AI_AGENTS_TOGGLE_KEY, context.previous)
+      }
+    },
+  })
+
+  return {
+    enabled: query.data?.enabled ?? true, // Default: enabled
+    isLoading: query.isLoading,
+    isUpdating: mutation.isPending,
+    error: query.error,
+    toggle: mutation.mutateAsync,
+  }
+}
+
+// =============================================================================
 // Combined Controller Hook
 // =============================================================================
 
