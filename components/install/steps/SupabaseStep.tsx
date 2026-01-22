@@ -330,16 +330,19 @@ export function SupabaseStep({ onComplete }: SupabaseStepProps) {
             <Loader2 className="w-20 h-20 text-emerald-500 animate-spin" />
           </div>
 
-          {/* Status atual */}
+          {/* Status atual - Narrativa de Despertar */}
           <h2 className="text-lg font-medium text-zinc-100">
-            {phase === 'listing_orgs' && 'Analisando conta...'}
-            {phase === 'creating' && 'Criando projeto...'}
-            {phase === 'waiting' && 'Aguardando ativação...'}
-            {phase === 'resolving' && 'Finalizando...'}
+            {phase === 'listing_orgs' && 'Olhando ao redor...'}
+            {phase === 'creating' && 'Tomando forma...'}
+            {phase === 'waiting' && 'Despertando...'}
+            {phase === 'resolving' && 'Quase lá...'}
           </h2>
 
           <p className="mt-2 text-sm text-zinc-400">
-            {statusMessage}
+            {phase === 'listing_orgs' && 'Reconhecendo o ambiente'}
+            {phase === 'creating' && 'Seu assistente está nascendo'}
+            {phase === 'waiting' && 'Abrindo os olhos pela primeira vez'}
+            {phase === 'resolving' && 'Aprendendo a se comunicar'}
           </p>
 
           {/* Progress steps */}

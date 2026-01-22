@@ -209,7 +209,7 @@ export default function InstallWizardPage() {
 
     setPhase('provisioning');
     setError(null);
-    setProvisioningTitle('Wake up, Neo...');
+    setProvisioningTitle(`Wake up, ${firstName}...`);
     setProvisioningSubtitle('A Matrix tem você...');
     setProvisioningProgress(0);
 

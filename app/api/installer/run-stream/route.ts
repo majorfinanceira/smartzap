@@ -461,6 +461,17 @@ export async function POST(req: Request) {
       console.log('[run-stream] Iniciando passo: redeploy');
       await sendPhase('redeploy', 0);
 
+      // IMPORTANTE: Desabilita o installer ANTES do redeploy
+      // Assim o novo deploy já sobe com INSTALLER_ENABLED=false
+      console.log('[run-stream] Desabilitando installer (INSTALLER_ENABLED=false) antes do redeploy...');
+      await upsertProjectEnvs(
+        vercel.token,
+        vercel.projectId,
+        [{ key: 'INSTALLER_ENABLED', value: 'false', targets: envTargets }],
+        vercel.teamId || undefined
+      );
+      console.log('[run-stream] INSTALLER_ENABLED definido como false');
+
       let vercelDeploymentId: string | null = null;
 
       try {
@@ -510,16 +521,6 @@ export async function POST(req: Request) {
       }
 
       await sendPhase('wait_vercel_deploy');
-
-      // Desabilita o installer após sucesso
-      console.log('[run-stream] Desabilitando installer (INSTALLER_ENABLED=false)...');
-      await upsertProjectEnvs(
-        vercel.token,
-        vercel.projectId,
-        [{ key: 'INSTALLER_ENABLED', value: 'false', targets: envTargets }],
-        vercel.teamId || undefined
-      );
-      console.log('[run-stream] INSTALLER_ENABLED definido como false');
 
       // Complete!
       console.log('[run-stream] Instalação concluída com sucesso!');
