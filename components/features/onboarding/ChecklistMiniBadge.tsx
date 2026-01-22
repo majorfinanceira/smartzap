@@ -3,7 +3,6 @@
 import React from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useOnboardingProgress } from './hooks/useOnboardingProgress';
-import { cn } from '@/lib/utils';
 
 interface ChecklistMiniBadgeProps {
   onClick?: () => void;
@@ -14,7 +13,6 @@ interface ChecklistMiniBadgeProps {
 export function ChecklistMiniBadge({ onClick, isOnboardingCompletedInDb }: ChecklistMiniBadgeProps) {
   const {
     progress,
-    checklistProgress,
     shouldShowChecklist,
     minimizeChecklist,
   } = useOnboardingProgress();
@@ -22,18 +20,14 @@ export function ChecklistMiniBadge({ onClick, isOnboardingCompletedInDb }: Check
   // Considera completo se está no banco OU no localStorage
   const isEffectivelyComplete = isOnboardingCompletedInDb || shouldShowChecklist;
 
-  // Mostra o badge se:
-  // 1. O checklist deveria estar visível mas está minimizado, OU
-  // 2. O checklist foi dismissado mas ainda tem itens pendentes
-  const shouldShowBadge =
-    (isEffectivelyComplete && progress.isChecklistMinimized) ||
-    (progress.isChecklistDismissed && checklistProgress.percentage < 100);
+  // Mostra o badge apenas se:
+  // - Onboarding completo E checklist minimizado
+  // Nota: O número de itens pendentes é gerenciado pelo OnboardingChecklist, não aqui
+  const shouldShowBadge = isEffectivelyComplete && progress.isChecklistMinimized;
 
   if (!shouldShowBadge) {
     return null;
   }
-
-  const pendingCount = checklistProgress.total - checklistProgress.completed;
 
   const handleClick = () => {
     if (onClick) {
@@ -49,21 +43,13 @@ export function ChecklistMiniBadge({ onClick, isOnboardingCompletedInDb }: Check
   return (
     <button
       onClick={handleClick}
-      className={cn(
-        'relative p-2 rounded-lg transition-colors',
-        'text-zinc-400 hover:text-white hover:bg-zinc-800',
-        pendingCount > 0 && 'text-amber-400 hover:text-amber-300'
-      )}
-      title={`${pendingCount} tarefa${pendingCount !== 1 ? 's' : ''} pendente${pendingCount !== 1 ? 's' : ''}`}
+      className="relative p-2 rounded-lg transition-colors text-amber-400 hover:text-amber-300 hover:bg-zinc-800"
+      title="Expandir checklist de configuração"
     >
       <ClipboardList className="w-5 h-5" />
 
-      {/* Badge com número */}
-      {pendingCount > 0 && (
-        <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">
-          {pendingCount}
-        </span>
-      )}
+      {/* Indicador de que há itens pendentes */}
+      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-500" />
     </button>
   );
 }
