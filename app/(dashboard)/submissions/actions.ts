@@ -1,7 +1,7 @@
 'use server'
 
 import { cache } from 'react'
-import { getSupabaseAdmin } from '@/lib/supabase-admin'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export interface SubmissionsInitialData {
   submissions: any[]
