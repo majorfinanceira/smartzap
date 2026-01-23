@@ -273,9 +273,9 @@ export const useCampaignWizardController = () => {
       } else {
         toast.success('Campanha criada e disparada com sucesso!');
 
-        // Para campanhas pequenas, o envio termina antes do Realtime conectar.
+        // Para campanhas pequenas/médias, o envio pode terminar antes do Realtime conectar.
         // Refetch automático após 2s para atualizar as stats.
-        if (campaign?.recipients && campaign.recipients < 100) {
+        if (campaign?.recipients && campaign.recipients < 2500) {
           setTimeout(() => {
             queryClient.invalidateQueries({ queryKey: ['campaign', campaign.id] });
             queryClient.invalidateQueries({ queryKey: ['campaignMessages', campaign.id] });
