@@ -8,8 +8,12 @@
  * 1. Webhook recebe mensagem → dispara workflow
  * 2. Workflow espera (context.sleep) para acumular mensagens
  * 3. Verifica estado da conversa (context.run)
- * 4. Processa com IA diretamente (context.run + processChatAgent)
+ * 4. Processa com IA via context.call() para endpoint com maxDuration maior
  * 5. Envia resposta via WhatsApp
+ *
+ * IMPORTANTE: Usa context.call() em vez de context.run() no step de IA para
+ * evitar timeout da Vercel. O workflow "hiberna" enquanto espera a resposta
+ * do endpoint /api/internal/ai-generate que tem maxDuration=60s.
  */
 
 import type { WorkflowContext } from '@upstash/workflow'
@@ -154,43 +158,122 @@ export async function processInboxAIWorkflow(context: WorkflowContext) {
   const messages = fetchResult.messages
 
   // =========================================================================
-  // Step 3: Processar com IA via context.run()
+  // Step 3: Processar com IA via context.call()
   // =========================================================================
-  // Chama processChatAgent diretamente. Apesar de consumir compute serverless
-  // durante a espera, é mais simples e confiável que context.call().
+  // Usa context.call() para chamar endpoint externo com maxDuration maior.
+  // O workflow "hiberna" enquanto espera, evitando timeout da Vercel.
   // =========================================================================
 
   console.log(`[inbox-ai-workflow] Processing with AI: agent=${agent.name}, messages=${messages.length}`)
 
-  const aiResult = await context.run('process-ai', async () => {
-    const { processChatAgent } = await import('@/lib/ai/agents/chat-agent')
+  // Monta a URL do endpoint interno
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+  if (!baseUrl) {
+    console.error('[inbox-ai-workflow] NEXT_PUBLIC_APP_URL not configured')
+    return { status: 'error', error: 'APP_URL not configured' }
+  }
 
-    const result = await processChatAgent({
+  const aiEndpointUrl = baseUrl.startsWith('http')
+    ? `${baseUrl}/api/internal/ai-generate`
+    : `https://${baseUrl}/api/internal/ai-generate`
+
+  const apiKey = process.env.SMARTZAP_API_KEY
+  if (!apiKey) {
+    console.error('[inbox-ai-workflow] SMARTZAP_API_KEY not configured')
+    return { status: 'error', error: 'API_KEY not configured' }
+  }
+
+  // Tipo de resposta do endpoint de IA
+  type AICallResponse = {
+    success: boolean
+    message?: string
+    sentiment?: 'positive' | 'neutral' | 'negative' | 'frustrated'
+    shouldHandoff?: boolean
+    handoffReason?: string
+    handoffSummary?: string
+    sources?: Array<{ title: string; content: string }>
+    logId?: string
+    error?: string
+  }
+
+  // Chama o endpoint via context.call() - workflow hiberna enquanto espera
+  const aiCallResult = await context.call<AICallResponse>('process-ai', {
+    url: aiEndpointUrl,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: {
       agent,
       conversation,
       messages,
-    })
-
-    return {
-      success: result.success,
-      message: result.response?.message,
-      sentiment: result.response?.sentiment,
-      shouldHandoff: result.response?.shouldHandoff,
-      handoffReason: result.response?.handoffReason,
-      handoffSummary: result.response?.handoffSummary,
-      sources: result.response?.sources,
-      logId: result.logId,
-      error: result.error,
-    }
+    },
+    retries: 2,
+    timeout: 60, // 60 segundos de timeout
   })
 
-  console.log(`[inbox-ai-workflow] AI processing result: success=${aiResult.success}`)
+  // Verifica se a chamada HTTP foi bem sucedida
+  if (aiCallResult.status !== 200) {
+    console.error(`[inbox-ai-workflow] AI endpoint returned status ${aiCallResult.status}`)
 
-  if (!aiResult.success || !aiResult.message) {
-    console.log(`[inbox-ai-workflow] AI processing failed: ${aiResult.error}`)
+    // Trata como erro e faz handoff
+    await context.run('auto-handoff-http-error', async () => {
+      const { inboxDb } = await import('./inbox-db')
+      const { sendWhatsAppMessage } = await import('@/lib/whatsapp-send')
+
+      const fallbackMessage =
+        'Desculpe, estou com dificuldades técnicas. Vou transferir você para um atendente.'
+
+      const sendResult = await sendWhatsAppMessage({
+        to: conversation.phone,
+        type: 'text',
+        text: fallbackMessage,
+      })
+
+      if (sendResult.success && sendResult.messageId) {
+        await inboxDb.createMessage({
+          conversation_id: conversationId,
+          direction: 'outbound',
+          content: fallbackMessage,
+          message_type: 'text',
+          whatsapp_message_id: sendResult.messageId,
+          delivery_status: 'sent',
+        })
+      }
+
+      await inboxDb.updateConversation(conversationId, { mode: 'human' })
+
+      await inboxDb.createMessage({
+        conversation_id: conversationId,
+        direction: 'outbound',
+        content: `🤖 **Transferência automática**\n\n**Motivo:** Erro HTTP ${aiCallResult.status} no endpoint de IA`,
+        message_type: 'internal_note',
+        delivery_status: 'delivered',
+      })
+    })
+
+    await context.run('cleanup-http-error', async () => {
+      const redis = getRedis()
+      if (redis) {
+        await redis.del(REDIS_KEYS.inboxLastMessage(conversationId))
+        await redis.del(REDIS_KEYS.inboxWorkflowPending(conversationId))
+      }
+    })
+
+    return { status: 'error', error: `HTTP ${aiCallResult.status}` }
+  }
+
+  // Extrai o resultado do body da resposta
+  const aiResult = aiCallResult.body
+
+  console.log(`[inbox-ai-workflow] AI processing result: success=${aiResult?.success}`)
+
+  if (!aiResult?.success || !aiResult?.message) {
+    console.log(`[inbox-ai-workflow] AI processing failed: ${aiResult?.error}`)
 
     // Auto-handoff em caso de erro
-    if (aiResult.error) {
+    if (aiResult?.error) {
       await context.run('auto-handoff-error', async () => {
         const { inboxDb } = await import('./inbox-db')
         const { sendWhatsAppMessage } = await import('@/lib/whatsapp-send')
@@ -223,7 +306,7 @@ export async function processInboxAIWorkflow(context: WorkflowContext) {
         await inboxDb.createMessage({
           conversation_id: conversationId,
           direction: 'outbound',
-          content: `🤖 **Transferência automática**\n\n**Motivo:** Erro técnico: ${aiResult.error}`,
+          content: `🤖 **Transferência automática**\n\n**Motivo:** Erro técnico: ${aiResult?.error || 'Resposta vazia'}`,
           message_type: 'internal_note',
           delivery_status: 'delivered',
         })
@@ -238,7 +321,7 @@ export async function processInboxAIWorkflow(context: WorkflowContext) {
       }
     })
 
-    return { status: 'error', error: aiResult.error }
+    return { status: 'error', error: aiResult?.error || 'Empty response' }
   }
 
   // =========================================================================
