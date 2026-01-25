@@ -122,6 +122,10 @@ function buildDirectDbUrl(projectRef: string, dbPass: string): string {
   return `postgresql://postgres:${encodeURIComponent(dbPass)}@db.${projectRef}.supabase.co:5432/postgres?sslmode=require`;
 }
 
+function buildPoolerDbUrl(projectRef: string, dbPass: string, poolerHost: string): string {
+  return `postgresql://postgres.${projectRef}:${encodeURIComponent(dbPass)}@${poolerHost}:6543/postgres?sslmode=require&pgbouncer=true`;
+}
+
 function isDbConnectionError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();
@@ -480,8 +484,8 @@ export async function POST(req: Request) {
         });
 
         if (poolerResult.ok) {
-          dbUrl = poolerResult.dbUrl;
-          console.log('[provision] ✅ Step 5/12: DB URL pooler resolvida', { host: poolerResult.host });
+          dbUrl = buildPoolerDbUrl(supabaseProject.projectRef, supabaseProject.dbPass, poolerResult.host);
+          console.log('[provision] ✅ Step 5/12: DB URL pooler (postgres) resolvida', { host: poolerResult.host });
         } else {
           console.warn('[provision] ⚠️ Step 5/12: Pooler indisponível - usando conexão direta');
           dbUrl = buildDirectDbUrl(supabaseProject.projectRef, supabaseProject.dbPass);
