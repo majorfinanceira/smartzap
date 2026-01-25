@@ -35,10 +35,6 @@ import type { InstallStep } from '@/lib/installer/types';
 export const maxDuration = 300;
 export const runtime = 'nodejs';
 
-// Retry configuration for pooler warmup race condition
-const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 3000;
-
 // =============================================================================
 // SCHEMA
 // =============================================================================
@@ -171,43 +167,6 @@ async function validateRedisCredentials(url: string, token: string): Promise<voi
   if (!res.ok) {
     throw new Error('Credenciais Redis inválidas');
   }
-}
-
-/**
- * Executa uma função com retry automático para lidar com race conditions.
- * Útil quando o Supabase Pooler ainda não está pronto após projeto ACTIVE.
- */
-async function withRetry<T>(
-  stepId: string,
-  fn: () => Promise<T>,
-  sendEvent: (event: StreamEvent) => Promise<void>,
-  isRetryable: (err: unknown) => boolean = () => true
-): Promise<T> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastError = err;
-
-      if (!isRetryable(err) || attempt === MAX_RETRIES) {
-        throw err;
-      }
-
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      console.log(`[provision] ⏳ Step ${stepId} retry ${attempt}/${MAX_RETRIES}: ${errorMsg}`);
-
-      await sendEvent({
-        type: 'progress',
-        title: 'Aguardando banco de dados...',
-        subtitle: `Tentativa ${attempt}/${MAX_RETRIES}`,
-      });
-
-      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * attempt));
-    }
-  }
-  throw lastError;
 }
 
 async function findOrCreateSupabaseProject(
@@ -592,36 +551,11 @@ export async function POST(req: Request) {
 
       if (dbUrl) {
         console.log('[provision] 📍 Step 9/12: Checking if schema exists...');
-
-        // Retry logic para lidar com race condition do Supabase Pooler
-        // O projeto pode estar ACTIVE mas o pooler ainda não reconhece o username
-        const schemaExists = await withRetry(
-          'check_schema',
-          () => checkSchemaApplied(dbUrl),
-          sendEvent,
-          (err) => {
-            const msg = err instanceof Error ? err.message : '';
-            return msg.includes('Tenant or user not found') || msg.includes('connection');
-          }
-        );
-
+        const schemaExists = await checkSchemaApplied(dbUrl);
         console.log('[provision] 📍 Step 9/12: schemaExists =', schemaExists);
-
         if (!schemaExists) {
           console.log('[provision] 📍 Step 9/12: Running migrations...');
-
-          await withRetry(
-            'migrations',
-            () => runSchemaMigration(dbUrl),
-            sendEvent,
-            (err) => {
-              const msg = err instanceof Error ? err.message : '';
-              // Retry on pooler errors, but not on schema conflicts
-              return (msg.includes('Tenant or user not found') || msg.includes('connection'))
-                && !msg.includes('already exists');
-            }
-          );
-
+          await runSchemaMigration(dbUrl);
           console.log('[provision] ✅ Step 9/12: Migrations completed, waiting 5s for schema cache...');
           // Wait for schema cache to update
           await new Promise((r) => setTimeout(r, 5000));
