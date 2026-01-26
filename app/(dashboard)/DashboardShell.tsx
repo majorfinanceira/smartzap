@@ -46,6 +46,7 @@ import {
     GuidedTour,
     useGuidedTour,
 } from '@/components/features/setup'
+import { useOnboardingStatus } from '@/hooks/useOnboardingStatus'
 
 export function DashboardShell({
     children,
@@ -108,20 +109,17 @@ export function DashboardShell({
     const [showGuidedTour, setShowGuidedTour] = useState(false)
     const guidedTour = useGuidedTour()
 
-    // Onboarding status from database (fonte da verdade)
-    const { data: onboardingDbStatus, refetch: refetchOnboardingStatus, isLoading: isOnboardingStatusLoading } = useQuery({
-        queryKey: ['onboardingStatus'],
-        queryFn: async () => {
-            const response = await fetch('/api/settings/onboarding')
-            if (!response.ok) throw new Error('Failed to fetch onboarding status')
-            return response.json() as Promise<{ onboardingCompleted: boolean; permanentTokenConfirmed: boolean }>
-        },
-        staleTime: 5 * 60 * 1000,
-        gcTime: 10 * 60 * 1000,
-    })
-
-    // Onboarding está completo se marcado no banco OU no localStorage
-    const isOnboardingCompletedInDb = onboardingDbStatus?.onboardingCompleted ?? false
+    // Onboarding status - usa hook dedicado com fallback em localStorage
+    // IMPORTANTE: O hook garante que o modal NUNCA aparece se:
+    // 1. O banco já marcou como completo (fonte da verdade)
+    // 2. OU o localStorage tem o flag (fallback para erros de rede)
+    // 3. OU houve erro na API (assume completo para não incomodar)
+    const { 
+        isCompleted: isOnboardingCompletedInDb, 
+        isLoading: isOnboardingStatusLoading,
+        markComplete: markOnboardingCompleteInDb,
+        refetch: refetchOnboardingStatus,
+    } = useOnboardingStatus()
 
     const { data: authStatus } = useQuery({
         queryKey: ['authStatus'],
@@ -300,23 +298,10 @@ export function DashboardShell({
     const handleMarkOnboardingComplete = useCallback(async () => {
         // Marca o onboarding como completo no localStorage (para compatibilidade)
         completeOnboarding()
-
-        // Marca o onboarding como completo no banco de dados (fonte da verdade)
-        try {
-            await fetch('/api/settings/onboarding', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ onboardingCompleted: true }),
-            })
-            refetchOnboardingStatus()
-        } catch (error) {
-            console.error('Erro ao salvar status do onboarding no banco:', error)
-        }
-
-        // Invalida e refaz health check para atualizar o status do WhatsApp
-        // Invalidar força o React Query a buscar dados novos em vez de usar cache
-        queryClient.invalidateQueries({ queryKey: ['healthStatus'] })
-    }, [completeOnboarding, refetchOnboardingStatus, queryClient])
+        
+        // Marca no banco + localStorage + invalida queries (tudo pelo hook)
+        await markOnboardingCompleteInDb()
+    }, [completeOnboarding, markOnboardingCompleteInDb])
 
     // Handler para quando credenciais são conectadas com sucesso (novo fluxo Dashboard-First)
     const handleCredentialsSuccess = useCallback(() => {
