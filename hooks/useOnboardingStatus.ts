@@ -33,7 +33,6 @@ export function useOnboardingStatus() {
                 throw new Error(`HTTP ${response.status}`)
             }
             const data = await response.json()
-            console.log('[useOnboardingStatus] API response:', data)
             return data
         },
         staleTime: 0, // Sempre busca dados frescos
@@ -64,15 +63,6 @@ export function useOnboardingStatus() {
     // 2. API falhou → assume completo (não incomoda)
     // 3. Banco diz FALSE → não completo
     const isCompleted = dbStatus?.onboardingCompleted === true || isError
-    
-    // Debug log
-    console.log('[useOnboardingStatus] State:', { 
-        dbStatus, 
-        isLoading, 
-        isFetching,
-        isError, 
-        isCompleted 
-    })
     
     return {
         /** Se o onboarding foi completado (DB = true OU erro na API) */

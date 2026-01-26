@@ -16,8 +16,6 @@ async function getSettingDirect(key: string): Promise<string | null> {
     .select('value')
     .eq('key', key)
     .single()
-
-  console.log(`[onboarding] getSettingDirect('${key}'):`, { data, error: error?.message })
   
   if (error || !data) return null
   return data.value
@@ -34,8 +32,6 @@ export async function GET() {
       getSettingDirect(KEYS.onboardingCompleted),
       getSettingDirect(KEYS.permanentTokenConfirmed),
     ])
-
-    console.log('[onboarding/GET] DB values:', { onboardingCompleted, permanentTokenConfirmed })
 
     const response = NextResponse.json({
       onboardingCompleted: onboardingCompleted === 'true',
@@ -68,7 +64,6 @@ async function setSettingDirect(key: string, value: string): Promise<void> {
     .upsert({ key, value, updated_at: now }, { onConflict: 'key' })
   
   if (error) {
-    console.error(`[onboarding] setSettingDirect('${key}') error:`, error.message)
     throw error
   }
 }
