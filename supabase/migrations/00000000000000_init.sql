@@ -227,6 +227,27 @@ BEGIN
 END;
 $$;
 
+-- RPC: ANALYZE em tabelas de alto volume (whitelist)
+CREATE OR REPLACE FUNCTION public.analyze_table(table_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF table_name NOT IN (
+    'campaign_contacts',
+    'contacts',
+    'inbox_messages',
+    'whatsapp_status_events'
+  ) THEN
+    RAISE EXCEPTION 'Table "%" is not in the allowed list for ANALYZE', table_name;
+  END IF;
+
+  EXECUTE format('ANALYZE %I', table_name);
+END;
+$$;
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -732,7 +753,16 @@ DECLARE
   v_automation_paused_until TIMESTAMPTZ;
   v_is_new_conversation BOOLEAN := FALSE;
   v_message_preview TEXT;
+  v_contact_id UUID;
+  v_current_contact_id UUID;
 BEGIN
+  -- Auto-lookup contact by phone if not provided
+  IF p_contact_id IS NULL THEN
+    SELECT id INTO v_contact_id FROM contacts WHERE phone = p_phone LIMIT 1;
+  ELSE
+    v_contact_id := p_contact_id::UUID;
+  END IF;
+
   -- Trunca preview para 100 chars
   v_message_preview := CASE
     WHEN LENGTH(p_content) > 100 THEN SUBSTRING(p_content, 1, 100) || '...'
@@ -741,10 +771,10 @@ BEGIN
 
   -- 1. Busca conversa existente pelo telefone (usa idx_inbox_conversations_phone_covering)
   SELECT
-    id, status, mode, ai_agent_id, human_mode_expires_at, automation_paused_until
+    id, status, mode, ai_agent_id, human_mode_expires_at, automation_paused_until, contact_id
   INTO
     v_conversation_id, v_conversation_status, v_conversation_mode,
-    v_ai_agent_id, v_human_mode_expires_at, v_automation_paused_until
+    v_ai_agent_id, v_human_mode_expires_at, v_automation_paused_until, v_current_contact_id
   FROM inbox_conversations
   WHERE phone = p_phone
   ORDER BY last_message_at DESC NULLS LAST
@@ -763,7 +793,7 @@ BEGIN
       last_message_preview
     ) VALUES (
       p_phone,
-      p_contact_id,
+      v_contact_id,
       'bot',
       'open',
       1,
@@ -779,6 +809,7 @@ BEGIN
     v_conversation_status := 'open';
   ELSE
     -- 3. Se existe, atualiza contadores e reabre se fechada
+    -- Auto-link contact if conversation has no contact but we found one
     UPDATE inbox_conversations
     SET
       total_messages = total_messages + 1,
@@ -786,6 +817,7 @@ BEGIN
       last_message_at = NOW(),
       last_message_preview = v_message_preview,
       status = CASE WHEN status = 'closed' THEN 'open' ELSE status END,
+      contact_id = COALESCE(contact_id, v_contact_id),
       updated_at = NOW()
     WHERE id = v_conversation_id
     RETURNING status INTO v_conversation_status;
@@ -828,7 +860,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.process_inbound_message IS
-'Processa mensagem inbound de forma atômica: busca/cria conversa + cria mensagem + atualiza contadores. Reduz 4-5 queries para 1 chamada.';
+'Processa mensagem inbound de forma atômica: busca/cria conversa + cria mensagem + atualiza contadores. Auto-vincula contatos pelo telefone.';
 
 -- =============================================================================
 -- RPC: Busca configurações do agente de forma otimizada
@@ -1342,6 +1374,9 @@ CREATE INDEX idx_attendant_tokens_active ON public.attendant_tokens USING btree 
 
 CREATE INDEX idx_campaign_contacts_campaign_phone ON public.campaign_contacts USING btree (campaign_id, phone);
 
+-- Composite: tela de detalhes filtra por campaign_id + status
+CREATE INDEX idx_campaign_contacts_campaign_status ON public.campaign_contacts USING btree (campaign_id, status);
+
 CREATE INDEX idx_campaign_contacts_contact_id ON public.campaign_contacts USING btree (contact_id);
 
 CREATE INDEX idx_campaign_contacts_failed_recent ON public.campaign_contacts USING btree (campaign_id, failed_at DESC) WHERE (status = 'failed'::text);
@@ -1377,6 +1412,10 @@ CREATE INDEX idx_campaigns_folder_id ON public.campaigns USING btree (folder_id)
 CREATE INDEX idx_campaigns_qstash_schedule_message_id ON public.campaigns USING btree (qstash_schedule_message_id);
 
 CREATE INDEX idx_campaigns_status ON public.campaigns USING btree (status);
+
+-- Partial index: hot path de campanhas ativas (dashboard + polling)
+CREATE INDEX idx_campaigns_active ON public.campaigns USING btree (status, scheduled_date)
+  WHERE status IN ('Enviando', 'Agendado');
 
 CREATE INDEX idx_contacts_custom_fields ON public.contacts USING gin (custom_fields);
 
@@ -1444,6 +1483,9 @@ INCLUDE (
 
 -- idx_inbox_messages_conversation_id removido: redundante com idx_inbox_messages_conversation_created(conversation_id, created_at)
 
+-- Composite: hot path do chat (pagination por conversa)
+CREATE INDEX idx_inbox_messages_conversation_created ON public.inbox_messages USING btree (conversation_id, created_at DESC);
+
 CREATE INDEX idx_inbox_messages_created_at ON public.inbox_messages USING btree (created_at);
 
 -- Índice para status updates do WhatsApp (renomeado de whatsapp_id para whatsapp_msg_id)
@@ -1508,6 +1550,41 @@ CREATE INDEX workflow_runs_workflow_id_idx ON public.workflow_runs USING btree (
 CREATE INDEX workflow_versions_workflow_id_idx ON public.workflow_versions USING btree (workflow_id, created_at DESC);
 
 CREATE UNIQUE INDEX workflow_versions_workflow_version_idx ON public.workflow_versions USING btree (workflow_id, version);
+
+-- =============================================================================
+-- AUTOVACUUM TUNING: Tabelas de alto volume
+-- Defaults do Postgres: vacuum_scale_factor=0.20, analyze_scale_factor=0.10
+-- Reduzido para manter estatísticas frescas e evitar bloat
+-- =============================================================================
+
+ALTER TABLE public.campaign_contacts SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02,
+  autovacuum_vacuum_cost_delay = 2
+);
+
+ALTER TABLE public.inbox_messages SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02,
+  autovacuum_vacuum_cost_delay = 2
+);
+
+ALTER TABLE public.inbox_conversations SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02,
+  autovacuum_vacuum_cost_delay = 2
+);
+
+ALTER TABLE public.whatsapp_status_events SET (
+  autovacuum_vacuum_scale_factor = 0.05,
+  autovacuum_analyze_scale_factor = 0.02,
+  autovacuum_vacuum_cost_delay = 2
+);
+
+ALTER TABLE public.campaigns SET (
+  autovacuum_vacuum_scale_factor = 0.10,
+  autovacuum_analyze_scale_factor = 0.05
+);
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON public.ai_agents FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
@@ -1697,6 +1774,154 @@ REVOKE ALL ON FUNCTION public.search_embeddings(extensions.vector, uuid, integer
 REVOKE ALL ON FUNCTION public.search_embeddings(extensions.vector, uuid, integer, double precision, integer) FROM anon;
 REVOKE ALL ON FUNCTION public.search_embeddings(extensions.vector, uuid, integer, double precision, integer) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.search_embeddings(extensions.vector, uuid, integer, double precision, integer) TO service_role;
+
+-- Trigger functions
+REVOKE ALL ON FUNCTION public.ensure_default_ai_agent() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.ensure_default_ai_agent() FROM anon;
+REVOKE ALL ON FUNCTION public.ensure_default_ai_agent() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.ensure_default_ai_agent() TO service_role;
+
+REVOKE ALL ON FUNCTION public.update_attendant_tokens_updated_at() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_attendant_tokens_updated_at() FROM anon;
+REVOKE ALL ON FUNCTION public.update_attendant_tokens_updated_at() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.update_attendant_tokens_updated_at() TO service_role;
+
+REVOKE ALL ON FUNCTION public.update_campaign_dispatch_metrics() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_campaign_dispatch_metrics() FROM anon;
+REVOKE ALL ON FUNCTION public.update_campaign_dispatch_metrics() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.update_campaign_dispatch_metrics() TO service_role;
+
+REVOKE ALL ON FUNCTION public.update_campaign_folders_updated_at() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_campaign_folders_updated_at() FROM anon;
+REVOKE ALL ON FUNCTION public.update_campaign_folders_updated_at() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.update_campaign_folders_updated_at() TO service_role;
+
+REVOKE ALL ON FUNCTION public.update_updated_at_column() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.update_updated_at_column() FROM anon;
+REVOKE ALL ON FUNCTION public.update_updated_at_column() FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.update_updated_at_column() TO service_role;
+
+-- analyze_table
+REVOKE ALL ON FUNCTION public.analyze_table(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.analyze_table(text) FROM anon;
+REVOKE ALL ON FUNCTION public.analyze_table(text) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.analyze_table(text) TO service_role;
+
+-- =============================================================================
+-- ROW LEVEL SECURITY
+-- =============================================================================
+-- RLS habilitado em TODAS as tabelas. service_role bypassa automaticamente.
+-- 7 tabelas com policy SELECT para anon (frontend Realtime).
+-- =============================================================================
+
+ALTER TABLE public.account_alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agent_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_agents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_knowledge_files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.attendant_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_batch_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_folders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_run_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaigns ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_tag_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_tags ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_trace_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.custom_field_definitions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.flow_submissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.flows ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inbox_conversation_labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inbox_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inbox_labels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inbox_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.inbox_quick_replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lead_forms ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.phone_suppressions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.template_project_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.template_projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.templates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.whatsapp_status_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_builder_executions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_builder_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_run_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflow_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.workflows ENABLE ROW LEVEL SECURITY;
+
+-- Policies SELECT para Realtime (anon pode ler)
+CREATE POLICY "anon_select_campaigns" ON public.campaigns FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_contacts" ON public.contacts FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_templates" ON public.templates FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_flows" ON public.flows FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_inbox_conversations" ON public.inbox_conversations FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_inbox_messages" ON public.inbox_messages FOR SELECT TO anon USING (true);
+CREATE POLICY "anon_select_account_alerts" ON public.account_alerts FOR SELECT TO anon USING (true);
+
+-- =============================================================================
+-- SECURITY HARDENING: Table-level grants
+-- =============================================================================
+-- REVOKE ALL nas 31 tabelas sem policies + view
+-- Nas 7 tabelas com policy, manter apenas SELECT
+-- =============================================================================
+
+REVOKE ALL ON TABLE public.ai_agents FROM anon, authenticated;
+REVOKE ALL ON TABLE public.ai_agent_logs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.ai_embeddings FROM anon, authenticated;
+REVOKE ALL ON TABLE public.ai_knowledge_files FROM anon, authenticated;
+REVOKE ALL ON TABLE public.attendant_tokens FROM anon, authenticated;
+REVOKE ALL ON TABLE public.settings FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_batch_metrics FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_contacts FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_folders FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_run_metrics FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_tag_assignments FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_tags FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_trace_events FROM anon, authenticated;
+REVOKE ALL ON TABLE public.custom_field_definitions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.flow_submissions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.inbox_conversation_labels FROM anon, authenticated;
+REVOKE ALL ON TABLE public.inbox_labels FROM anon, authenticated;
+REVOKE ALL ON TABLE public.inbox_quick_replies FROM anon, authenticated;
+REVOKE ALL ON TABLE public.lead_forms FROM anon, authenticated;
+REVOKE ALL ON TABLE public.phone_suppressions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.push_subscriptions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.template_project_items FROM anon, authenticated;
+REVOKE ALL ON TABLE public.template_projects FROM anon, authenticated;
+REVOKE ALL ON TABLE public.whatsapp_status_events FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_builder_executions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_builder_logs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_conversations FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_run_logs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_runs FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflow_versions FROM anon, authenticated;
+REVOKE ALL ON TABLE public.workflows FROM anon, authenticated;
+REVOKE ALL ON TABLE public.campaign_stats_summary FROM anon, authenticated;
+
+-- 7 tabelas com SELECT policy: remover INSERT/UPDATE/DELETE
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.account_alerts FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.campaigns FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.contacts FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.flows FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.inbox_conversations FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.inbox_messages FROM anon, authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.templates FROM anon, authenticated;
+
+-- Sequences: revogar de anon/authenticated
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+-- Default privileges: previne auto-grant em novos objetos
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM authenticated;
 
 -- =============================================================================
 -- REALTIME
