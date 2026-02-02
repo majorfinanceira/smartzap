@@ -1,6 +1,8 @@
+import { randomBytes } from 'crypto'
+
 /**
  * Authentication & Authorization Middleware
- * 
+ *
  * Provides API key authentication for all API routes
  * Protects against unauthorized access
  */
@@ -168,13 +170,5 @@ export function forbiddenResponse(message: string = 'Forbidden'): NextResponse {
  * Generate a new API key
  */
 export function generateApiKey(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-  const prefix = 'szap_'
-  let key = prefix
-
-  for (let i = 0; i < 32; i++) {
-    key += chars.charAt(Math.floor(Math.random() * chars.length))
-  }
-
-  return key
+  return 'szap_' + randomBytes(24).toString('base64url').slice(0, 32)
 }

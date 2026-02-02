@@ -80,6 +80,9 @@ scripts/*
 .DS_Store
 *.local
 
+# Supabase CLI temp files
+supabase/.temp/
+
 # Vercel
 .vercel
 
