@@ -176,12 +176,12 @@ function LoginForm() {
         </a>
         {' '}| by{' '}
         <a
-          href="https://instagram.com/eusoukleberpereira"
+          href="https://instagram.com/soukleberpereira"
           target="_blank"
           rel="noopener noreferrer"
           className="hover:text-emerald-500 transition-colors"
         >
-          @eusoukleberpereira
+          @soukleberpereira
         </a>
       </p>
     </div>
